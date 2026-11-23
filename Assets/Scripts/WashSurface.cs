@@ -240,7 +240,7 @@ public sealed class WashSurface
             Array.Copy(_output, (_dirtyMinY + y) * W + _dirtyMinX,
                 _upload, y * w, w);
         }
-        _texture.SetPixels32(_upload, _dirtyMinX, _dirtyMinY, w, h);
+        _texture.SetPixels32(_dirtyMinX, _dirtyMinY, w, h, _upload, 0);
         _texture.Apply(false, false);
 
         _dirty = false;
