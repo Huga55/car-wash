@@ -36,6 +36,66 @@ public static class GameArt
         new Color32(134, 140, 150, 255)
     };
 
+    private static Sprite _cloud;
+    private static Sprite _sun;
+
+    /// <summary>Overlay sprites for the gentle menu animation.</summary>
+    public static Sprite CloudSprite
+    {
+        get
+        {
+            if (_cloud == null)
+            {
+                const int w = 128;
+                const int h = 64;
+                var pixels = new Color32[w * h];
+                Disc(pixels, w, h, 42, 36, 20f, new Color32(255, 255, 255, 255));
+                Disc(pixels, w, h, 66, 30, 25f, new Color32(255, 255, 255, 255));
+                Disc(pixels, w, h, 92, 38, 18f, new Color32(255, 255, 255, 255));
+                var texture = CarArt.MakeTexture(pixels, w, h, "Cloud");
+                _cloud = Sprite.Create(texture, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100f);
+            }
+            return _cloud;
+        }
+    }
+
+    public static Sprite SunSprite
+    {
+        get
+        {
+            if (_sun == null)
+            {
+                const int s = 128;
+                var pixels = new Color32[s * s];
+                Disc(pixels, s, s, 64, 64, 36f, new Color32(255, 232, 118, 255));
+                for (int i = 0; i < 12; i++)
+                {
+                    float angle = i * Mathf.PI * 2f / 12f;
+                    float cx = 64f + Mathf.Cos(angle) * 49f;
+                    float cy = 64f + Mathf.Sin(angle) * 49f;
+                    Disc(pixels, s, s, cx, cy, 6f, new Color32(255, 232, 118, 255));
+                }
+                var texture = CarArt.MakeTexture(pixels, s, s, "Sun");
+                _sun = Sprite.Create(texture, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), 100f);
+            }
+            return _sun;
+        }
+    }
+
+    private static void Disc(Color32[] pixels, int w, int h, float cx, float cy, float radius, Color32 color)
+    {
+        for (int y = Mathf.FloorToInt(cy - radius); y <= Mathf.CeilToInt(cy + radius); y++)
+        {
+            for (int x = Mathf.FloorToInt(cx - radius); x <= Mathf.CeilToInt(cx + radius); x++)
+            {
+                if (x < 0 || y < 0 || x >= w || y >= h) continue;
+                float dx = x + 0.5f - cx;
+                float dy = y + 0.5f - cy;
+                if (dx * dx + dy * dy <= radius * radius) pixels[y * w + x] = color;
+            }
+        }
+    }
+
     public static Texture2D Background(int theme)
     {
         int t = Mathf.Abs(theme) % SkyTop.Length;

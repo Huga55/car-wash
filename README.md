@@ -1,89 +1,103 @@
 # Little Car Wash
 
-A gentle, colourful car-washing game for 5–7 year olds. Works on **Android tablets** (finger) and **Windows** (mouse or touch screen).
+Детская игра для 5–7 лет на Unity **2022.3.61f1**. Работает на **Android-планшетах** (палец) и **Windows** (мышь). Весь интерфейс — на русском языке.
 
-The child washes a dirty car in three easy steps:
+Ребёнок — хозяин маленькой автомойки. К нему приезжают разные машинки, испачканные грязью, пылью, песком, лужами, листьями или снегом. Нужно помыть машинку, получить благодарность водителя-животного и открыть следующую машину.
 
-1. **Make it wet** — swipe a finger/mouse over the car.
-2. **Add foam** — swipe again to cover it in bubbles.
-3. **Rinse it off** — swipe to reveal a sparkling, shiny car.
+## Правила игры
 
-There is no timer pressure and no way to fail: once about 60% of the car is swiped, the game finishes the last few spots for the child, cheers, and moves on.
+- **Нет таймера, штрафов и проигрыша.** Главная цель — просто помыть машинку.
+- Не нужно закрашивать каждый пиксель: после ~62% обработанной поверхности игра сама завершает этап.
+- Каждое действие даёт понятный отклик: грязь исчезает, появляется вода, пена, пузырьки, блики и звук.
+- Прогресс сохраняется в `PlayerPrefs`: после мойки открывается следующий уровень, звёзды и пройденные машины не теряются.
 
-## Features
+### Этапы мойки
 
-- **30 levels** with small cars, big trucks, buses, a fire truck, tractor, ice-cream van, limo, monster truck and more.
-- Every car is **drawn procedurally** from simple 2D shapes — no 3D models, textures, fonts, shaders or audio files in the repository.
-- Bright backgrounds, stars, sparkles, progress bar and generated sound effects.
-- Big friendly buttons, huge text, one-step instructions and an animated finger hint.
-- Stars are saved per level in `PlayerPrefs`; all levels are unlocked from the start.
-- Designed for **weak Android tablets**: a single 256×256 painting texture, one upload per stroke, unlit UI, no real-time lights or physics.
+1. **Намочим машинку!** — шланг, вода и тёмные мокрые участки.
+2. **Теперь добавим немного пены!** — распылитель, густая белая пена и пузырьки.
+3. **Отлично! Теперь смоем пену!** — шланг открывает чистую поверхность.
+4. **Потрём губкой упрямые места!** — начинается с 4-го уровня, убирает остатки грязи.
+5. **Последний штрих — сделаем машинку блестящей!** — фен убирает капли и включает сияние.
 
-## Playing locally
+После этого появляется зверёк-водитель (кот, собака, медведь, заяц, лиса, панда, енот, лягушка, лев или слон), благодарит, подпрыгивает, машет лапой, садится в машину — и машина уезжает. Затем показывается экран «УРОВЕНЬ ПРОЙДЕН!» с чистой машиной, звёздами и кнопкой следующей машины.
 
-1. Install **Unity 2022.3.61f1** (LTS) with Unity Hub. For Android, install the Android Build Support module (SDK + NDK) in the Hub.
-2. Open this folder as a project in Unity Hub.
-3. Press **Play** in the editor (mouse drag = finger swipe).
+## Управление и навигация
 
-`Assets/Editor/BuildScript.cs` is the CI entry point. It passes `Assets/Scenes/Game.unity` directly to Unity, so builds never depend on the editor's "Scenes in Build" list. The game itself sets landscape orientation and a sensible frame rate at runtime.
+- **ИГРАТЬ** — продолжить с открытого уровня.
+- **МАШИНЫ** — крупная карусель машинок с названиями, звёздами, замками и общим прогрессом.
+- **ПАУЗА / Escape / системная кнопка Back Android** — меню паузы во время игры, возврат в меню в списке машин, диалог выхода в главном меню.
+- **Звук: Вкл./Выкл.** — в меню и на игровом экране.
+- **ВЫХОД** — всегда с подтверждением «Ты точно хочешь уйти?».
 
-## Automatic GitHub builds
+## Содержимое
 
-`.github/workflows/build.yml` builds **Android** and **StandaloneWindows64** on every `push` and can also be started manually from the Actions tab. Artifacts are uploaded as `LittleCarWash-Android` and `LittleCarWash-StandaloneWindows64`.
+- **30 уровней** и **20 визуально различных типов транспорта**: легковая, спортивная, такси, полиция, скорая, пожарная, грузовик, самосвал, экскаватор, бульдозер, трактор, автобус, школьный автобус, микроавтобус, лимузин, мусоровоз, бетономешалка, монстр-трак, фургон мороженого, гоночная машина и жук-машинка.
+- **6 типов загрязнений** и **5 окружений**.
+- **10 дружелюбных водителей-животных** с репликами на русском языке.
+- Все картинки, иконки, звуки и анимации создаются процедурно: в репозитории нет моделей, текстур и аудиофайлов. Русский шрифт берётся из ОС (`Arial`, `Roboto`, `Noto Sans` и другие), поэтому кириллица отображается корректно.
 
-Unity requires an activated licence in CI. The first build fails with **`Missing Unity License File and no Serial was found`** until you add one of these secret sets (**Settings → Secrets and variables → Actions → New repository secret**).
+## Технические особенности
 
-### Free Unity Personal licence (most people)
+- **Один 256×256 overlay** на машину для воды, пены, грязи, губки и блеска.
+- При каждом движении пересчитывается и загружается **только прямоугольник кисти**, а не вся текстура.
+- Кисть интерполирует промежуточные точки между кадрами: быстрый swipe не оставляет пропусков.
+- Переиспользуемые коллекции ввода: нет аллокаций на каждое движение пальца.
+- 30 FPS на слабых устройствах (≤4 ядер или <2 ГБ ОЗУ), 60 FPS на остальных; vSync выключен.
+- Canvas Scaler + отдельный `UiLayout`: интерфейс рисуется в фиксированной области 1200×800, которая масштабируется и центрируется внутри `Screen.safeArea`. Это исключает обрезку на 16:9, 16:10, 4:3, 5:4 и широких экранах.
+- Никаких постобработок, физики, реальных светов, частиц и тяжёлых анимаций.
 
-1. Install **Unity Hub** (free) and sign in with your Unity account. Hub is only needed to create the licence file — you still do not need Unity/Hub to *play* the built game.
-2. In Hub open **Preferences → Licenses → Add → Get a free personal license** and complete activation.
-3. Copy the licence file from:
-   - Windows: `C:\ProgramData\Unity\Unity_lic.ulf`
-   - macOS: `/Library/Application Support/Unity/Unity_lic.ulf`
-   - Linux: `~/.local/share/unity3d/Unity/Unity_lic.ulf`
-4. Open `Unity_lic.ulf` in Notepad, select all, and paste the **whole XML contents** into the `UNITY_LICENSE` secret. Add your Unity account as `UNITY_EMAIL` and `UNITY_PASSWORD` too.
-5. **Sign out of Unity Hub** after copying the file. On recent Hub versions signing out returns the Personal seat so the CI build can use it.
-6. Re-run the workflow (**Actions → Build… → Re-run all jobs**).
+## Запуск
 
-If GitHub has trouble storing the multi-line XML, use base64 instead — in PowerShell:
+1. Установите **Unity 2022.3.61f1** через Unity Hub. Для Android добавьте модуль Android Build Support (SDK + NDK).
+2. Откройте эту папку как проект.
+3. Нажмите **Play** в редакторе или соберите Windows/Android через `File → Build Settings`.
 
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\ProgramData\Unity\Unity_lic.ulf")) | Set-Clipboard
-```
+`Assets/Editor/BuildScript.cs` — точка входа для CI. Он передаёт сцену `Assets/Scenes/Game.unity` напрямую в `BuildPipeline.BuildPlayer`, поэтому сборка не зависит от списка сцен в редакторе.
 
-### Unity Plus / Pro licence
+## Сборка GitHub Actions
 
-Add `UNITY_SERIAL` (your serial, e.g. `XX-XXXX-XXXX-XXXX-XXXX-XXXX`), `UNITY_EMAIL` and `UNITY_PASSWORD`.
+`.github/workflows/build.yml` собирает **Android** и **StandaloneWindows64** при каждом `push` и вручную через **Actions → Run workflow**. Готовые файлы лежат в артефактах конкретного запуска:
 
-The workflow uses [`game-ci/unity-builder`](https://github.com/game-ci/unity-builder). A log line like **`Warning: Library folder does not exist`** is normal on the first run — Unity creates `Library/` during the build, and the cache step reuses it on later runs.
+- `LittleCarWash-Android` → APK/AAB,
+- `LittleCarWash-StandaloneWindows64` → `LittleCarWash.exe` + `_Data`.
 
-Artifacts:
+Для активации Unity в CI нужны секреты `UNITY_LICENSE` (или `UNITY_SERIAL`), `UNITY_EMAIL` и `UNITY_PASSWORD`. Их добавляют в **Settings → Secrets and variables → Actions**.
 
-- **Android:** `LittleCarWash.apk` — debug-signed, install with `adb install -r LittleCarWash.apk`. For Play Store publishing, add a keystore in Unity Player Settings / CI secrets.
-- **Windows:** `LittleCarWash.exe` plus its `_Data` folder — keep them together.
-
-## Project layout
+## Структура
 
 ```
 Assets/
-  Scenes/Game.unity          Minimal scene with the Bootstrap component
+  Scenes/Game.unity            Минимальная сцена с Bootstrap
+  Editor/BuildScript.cs        Явная CI-сборка + настройки плеера
   Scripts/
-    Bootstrap.cs             Camera, EventSystem, audio and controller setup
-    GameController.cs        Screens, input, stage flow, stars
-    GameData.cs              30 level definitions (car kinds, colours, sizes)
-    CarArt.cs                Procedural 2D car drawing (17 car families)
-    WashSurface.cs           Wet / foam / clean masks and compositing
-    GameArt.cs               Background themes
-    UiFactory.cs             Runtime UI widgets (rounded panels, stars, text)
-    AudioHelper.cs           Synthesised sound effects
-  Editor/BuildScript.cs      Explicit CI build method (hardcoded scene path)
-.github/workflows/build.yml  Android + Windows CI
+    Bootstrap.cs               Камера, EventSystem, аудио, FPS
+    GameController.cs          Экраны и связка систем
+    GameData.cs                30 уровней, типы грязи, водители
+    Localization.cs            Все русские строки и реплики
+    ProgressManager.cs         Разблокировка, звёзды, сохранение
+    CarArt.cs                  20 процедурных машин
+    AnimalArt.cs               10 процедурных зверят
+    AnimalActor.cs             Появление, прыжки, волна, посадка в машину
+    CarViewController.cs       Машина, overlay и анимация отъезда
+    WashingController.cs       Единый ввод мыши/пальца, инструменты
+    WashSurface.cs             5 масок и грязевой слой в одной текстуре
+    UiFactory.cs               Кнопки, панели, иконки, кириллический шрифт
+    UiLayout.cs                Масштабирование под safe area
+    GameArt.cs                 Фоны, облака и солнце
+    AudioHelper.cs             Синтезированные звуки (AudioManager)
 ```
 
-## Adding content
+## Проверки
 
-- **New level:** add a name in `GameData.Names` and tweak the arrays in `GameData.cs`. `LevelCount` controls how many levels exist.
-- **New car shape:** add an enum value in `CarKind`, add a drawing method in `CarArt.Painter`, and hook it into `CarArt.Render`'s switch.
-- **New background:** add a palette to `GameArt` and increase the sprite cache size in `GameController`.
+Локальный compile-check и smoke-тест (`.NET` + заглушки Unity API) проверяют:
 
-Everything visible is generated at runtime, so adding a car costs a few dozen lines of shape drawing and zero downloaded assets.
+- компиляцию всех runtime-скриптов и build-скрипта;
+- отрисовку всех 20 машин и всех 10 животных;
+- наличие обязательных типов транспорта и русских названий;
+- отсутствие английских надписей в UI;
+- последовательное открытие уровней и сохранение прогресса;
+- достижимость всех пяти этапов мойки;
+- наличие иконок инструментов и спрайтов анимации меню;
+- попадание всех ключевых UI-элементов в область safe area на 6 разрешениях.
+
+Полный запуск в Unity Play Mode, замер FPS на реальном планшете и сборка обеих платформ выполняются через GitHub Actions. Ручного прохождения пальцем на физическом устройстве в этой среде нет.

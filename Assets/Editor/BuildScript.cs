@@ -37,11 +37,7 @@ namespace LittleCarWashBuild
                 return;
             }
 
-            if (target == BuildTarget.Android)
-            {
-                EditorUserBuildSettings.buildAppBundle =
-                    outputPath.EndsWith(".aab", StringComparison.OrdinalIgnoreCase);
-            }
+            ApplyPlayerSettings(target, outputPath);
 
             Debug.Log("Building " + ScenePath + " -> " + outputPath + " (" + target + ")");
 
@@ -62,6 +58,33 @@ namespace LittleCarWashBuild
                       " | size: " + summary.totalSize);
 
             EditorApplication.Exit(summary.result == BuildResult.Succeeded ? 0 : 1);
+        }
+
+        /// <summary>Settings are applied inside the explicit build method, never
+        /// from InitializeOnLoad, so batch builds never see a pending domain reload.</summary>
+        private static void ApplyPlayerSettings(BuildTarget target, string outputPath)
+        {
+            PlayerSettings.companyName = "Little Car Wash";
+            PlayerSettings.productName = "Little Car Wash";
+            PlayerSettings.bundleVersion = "1.0";
+            PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
+            PlayerSettings.allowedAutorotateToLandscapeLeft = true;
+            PlayerSettings.allowedAutorotateToLandscapeRight = true;
+            PlayerSettings.allowedAutorotateToPortrait = false;
+            PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
+            PlayerSettings.defaultScreenWidth = 1280;
+            PlayerSettings.defaultScreenHeight = 800;
+            PlayerSettings.runInBackground = false;
+
+            if (target != BuildTarget.Android) return;
+
+            EditorUserBuildSettings.buildAppBundle =
+                outputPath.EndsWith(".aab", StringComparison.OrdinalIgnoreCase);
+            PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.littlecarwash.game");
+            PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
+            PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel22;
+            PlayerSettings.Android.bundleVersionCode = 1;
+            PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64 | AndroidArchitecture.ARMv7;
         }
 
         private static Dictionary<string, string> ParseArgs()

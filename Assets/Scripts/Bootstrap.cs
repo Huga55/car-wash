@@ -5,10 +5,14 @@ using UnityEngine.EventSystems;
 [DefaultExecutionOrder(-1000)]
 public sealed class Bootstrap : MonoBehaviour
 {
+    [SerializeField] private int weakDeviceFps = 30;
+    [SerializeField] private int fastDeviceFps = 60;
+
     private void Awake()
     {
         // Older/cheaper tablets stay smooth at 30 fps, faster devices get 60.
-        Application.targetFrameRate = SystemInfo.processorCount <= 4 || SystemInfo.systemMemorySize < 2048 ? 30 : 60;
+        bool weak = SystemInfo.processorCount <= 4 || SystemInfo.systemMemorySize < 2048;
+        Application.targetFrameRate = weak ? weakDeviceFps : fastDeviceFps;
         QualitySettings.vSyncCount = 0;
         Screen.sleepTimeout = SleepTimeout.NeverSleep;
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -32,7 +36,7 @@ public sealed class Bootstrap : MonoBehaviour
         if (FindObjectOfType<AudioListener>() == null) gameObject.AddComponent<AudioListener>();
         var audio = gameObject.AddComponent<AudioSource>();
         audio.playOnAwake = false;
-        Sfx.Init(audio);
+        AudioManager.Init(audio);
 
         if (FindObjectOfType<GameController>() == null)
             new GameObject("GameController").AddComponent<GameController>();

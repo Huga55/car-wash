@@ -1,11 +1,13 @@
+using System;
 using UnityEngine;
 
-public enum WashStage { Wet, Foam, Rinse, Done }
+public enum WashStage { Wet, Foam, Rinse, Scrub, Dry, Done }
 
 /// <summary>
-/// The "paintable" car surface. Keeps three small masks (wet, foam, clean) and
-/// composites them into ONE 256x256 texture displayed over the car art.
-/// Only 65k pixels are touched, so this is cheap even on weak tablets.
+/// The paintable car surface. Five small masks (wet, foam, clean, scrubbed, dry)
+/// are composited into ONE 256x256 texture over the car art. Only the dirty
+/// rectangle of the brush is rebuilt and uploaded, keeping this cheap on weak
+/// Android tablets.
 /// </summary>
 public sealed class WashSurface
 {
@@ -15,26 +17,44 @@ public sealed class WashSurface
 
     private readonly Texture2D _texture;
     private readonly Color32[] _output;
+    private readonly Color32[] _upload;
     private readonly float[] _wet = new float[N];
     private readonly float[] _foam = new float[N];
     private readonly float[] _clean = new float[N];
+    private readonly float[] _scrub = new float[N];
+    private readonly float[] _dry = new float[N];
     private readonly float[] _dirt = new float[N];
     private readonly float[] _bubbles = new float[N];
     private readonly float[] _shine = new float[N];
     private readonly float[] _shade = new float[N];
     private readonly float[] _silhouette = new float[N];
+    private readonly Color32 _dirtColor;
 
     private float _total;
     private float _wetSum;
     private float _foamSum;
     private float _cleanSum;
-    private bool _needsUpload;
+    private float _scrubSum;
+    private float _drySum;
+    private bool _dirty;
+    private int _dirtyMinX;
+    private int _dirtyMinY;
+    private int _dirtyMaxX;
+    private int _dirtyMaxY;
 
     public Texture2D Texture { get { return _texture; } }
 
-    public WashSurface(Color32[] carPixels, int carW, int carH, float dirtAmount, int seed)
+    public WashSurface(Color32[] carPixels, int carW, int carH, float dirtAmount, int seed,
+        DirtKind dirtType = DirtKind.Mud)
     {
         _output = new Color32[N];
+        _upload = new Color32[N];
+        _dirtyMinX = W;
+        _dirtyMinY = H;
+        _dirtyMaxX = -1;
+        _dirtyMaxY = -1;
+        _dirtColor = DirtColor(dirtType);
+        float dirtScale = dirtType == DirtKind.Snow ? 0.72f : (dirtType == DirtKind.Dust ? 0.86f : 1f);
 
         var glints = new Vector2[6];
         for (int g = 0; g < glints.Length; g++)
@@ -57,8 +77,11 @@ public sealed class WashSurface
 
                 float n = Mathf.PerlinNoise(x * 0.045f + seed * 0.17f, y * 0.045f + seed * 0.29f);
                 float h = Hash(x, y, seed);
-                float upper = y > H * 0.62f ? 0.55f : 1f; // leave the windows a bit cleaner
-                _dirt[i] = Mathf.Clamp01((0.60f + 0.28f * n + 0.22f * h) * dirtAmount * upper);
+                float upper = y > H * 0.62f ? 0.55f : 1f; // leave windows a little clearer
+                float patch = dirtType == DirtKind.Leaves
+                    ? (Mathf.PerlinNoise(x * 0.12f, y * 0.12f) > 0.45f ? 1.35f : 0.35f)
+                    : 1f;
+                _dirt[i] = Mathf.Clamp01((0.60f + 0.28f * n + 0.22f * h) * dirtAmount * dirtScale * upper * patch);
                 _bubbles[i] = 0.58f + 0.42f * Mathf.PerlinNoise(x * 0.085f + 7f, y * 0.085f + 13f);
                 _shade[i] = h;
 
@@ -79,16 +102,14 @@ public sealed class WashSurface
             filterMode = FilterMode.Bilinear,
             wrapMode = TextureWrapMode.Clamp
         };
-        Rebuild();
-        _needsUpload = true;
+        MarkDirty(0, 0, W - 1, H - 1);
         Upload();
     }
 
-    /// <summary>Paint a stroke from UV (0..1) a to b. Radius is a fraction of the car height.</summary>
+    /// <summary>Paint a stroke from UV (0..1) a to b, interpolating intermediate
+    /// points so a fast finger swipe never leaves gaps.</summary>
     public void PaintLine(float u0, float v0, float u1, float v1, float radius, WashStage stage)
     {
-        // The overlay is square but displayed in a 3:2 box: correct x by 1.5 so
-        // the brush stays round on screen.
         float px = (u1 - u0) * W * 1.5f;
         float py = (v1 - v0) * H;
         float distance = Mathf.Sqrt(px * px + py * py);
@@ -103,6 +124,8 @@ public sealed class WashSurface
 
     public void Paint(float u, float v, float radius, WashStage stage)
     {
+        if (stage == WashStage.Done) return;
+
         float cx = u * W;
         float cy = v * H;
         float prY = Mathf.Max(2f, radius * H);
@@ -112,6 +135,7 @@ public sealed class WashSurface
         int x1 = Mathf.Min(W - 1, Mathf.CeilToInt(cx + prX));
         int y0 = Mathf.Max(0, Mathf.FloorToInt(cy - prY));
         int y1 = Mathf.Min(H - 1, Mathf.CeilToInt(cy + prY));
+        bool changed = false;
 
         for (int y = y0; y <= y1; y++)
         {
@@ -127,6 +151,7 @@ public sealed class WashSurface
                 float t = 1f - d / prY;
                 float falloff = t * t * (3f - 2f * t);
                 float amount = falloff * 0.92f;
+                changed = true;
 
                 switch (stage)
                 {
@@ -141,17 +166,24 @@ public sealed class WashSurface
                         _foam[i] *= 1f - falloff * 0.95f;
                         _wet[i] *= 1f - falloff * 0.75f;
                         break;
+                    case WashStage.Scrub:
+                        _scrubSum += Add(_scrub, i, amount, _silhouette[i]);
+                        break;
+                    case WashStage.Dry:
+                        _drySum += Add(_dry, i, amount, _silhouette[i]);
+                        break;
                 }
             }
         }
-        if (stage != WashStage.Done) _needsUpload = true;
+        if (changed) MarkDirty(x0, y0, x1, y1);
     }
 
-    /// <summary>Finish the current stage so no tiny spot is left behind (no failure for kids).</summary>
+    /// <summary>Finish the current stage so no tiny spot is left behind: no
+    /// failure, no pixel-perfect swiping, no adult help needed.</summary>
     public void FillCurrent(WashStage stage)
     {
         if (stage == WashStage.Done) return;
-        float[] target = stage == WashStage.Wet ? _wet : (stage == WashStage.Foam ? _foam : _clean);
+        float[] target = Target(stage);
         float sum = 0f;
         for (int i = 0; i < N; i++)
         {
@@ -159,26 +191,111 @@ public sealed class WashSurface
             target[i] = 1f;
             sum += _silhouette[i];
         }
-        if (stage == WashStage.Wet) _wetSum = sum;
-        else if (stage == WashStage.Foam) _foamSum = sum;
-        else _cleanSum = sum;
-        _needsUpload = true;
+        SetSum(stage, sum);
+        MarkDirty(0, 0, W - 1, H - 1);
+        Upload();
+    }
+
+    /// <summary>Final celebration state: clean, dry and shiny with no dirt left.</summary>
+    public void FinishAll()
+    {
+        float sum = 0f;
+        for (int i = 0; i < N; i++)
+        {
+            if (_silhouette[i] < 0.02f) continue;
+            float sil = _silhouette[i];
+            sum += sil;
+            _dirt[i] = 0f;
+            _wet[i] = 0f;
+            _foam[i] = 0f;
+            _clean[i] = 1f;
+            _scrub[i] = 1f;
+            _dry[i] = 1f;
+        }
+        _wetSum = sum;
+        _foamSum = sum;
+        _cleanSum = sum;
+        _scrubSum = sum;
+        _drySum = sum;
+        MarkDirty(0, 0, W - 1, H - 1);
         Upload();
     }
 
     public float Progress(WashStage stage)
     {
-        float sum = stage == WashStage.Wet ? _wetSum : (stage == WashStage.Foam ? _foamSum : _cleanSum);
-        return Mathf.Clamp01(sum / Mathf.Max(1f, _total));
+        if (stage == WashStage.Done) return 1f;
+        return Mathf.Clamp01(Sum(stage) / Mathf.Max(1f, _total));
     }
 
     public void Upload()
     {
-        if (!_needsUpload) return;
-        Rebuild();
-        _texture.SetPixels32(_output);
+        if (!_dirty) return;
+
+        int w = _dirtyMaxX - _dirtyMinX + 1;
+        int h = _dirtyMaxY - _dirtyMinY + 1;
+        Rebuild(_dirtyMinX, _dirtyMinY, _dirtyMaxX, _dirtyMaxY);
+
+        for (int y = 0; y < h; y++)
+        {
+            Array.Copy(_output, (_dirtyMinY + y) * W + _dirtyMinX,
+                _upload, y * w, w);
+        }
+        _texture.SetPixels32(_upload, _dirtyMinX, _dirtyMinY, w, h);
         _texture.Apply(false, false);
-        _needsUpload = false;
+
+        _dirty = false;
+        _dirtyMinX = W;
+        _dirtyMinY = H;
+        _dirtyMaxX = -1;
+        _dirtyMaxY = -1;
+    }
+
+    private void MarkDirty(int x0, int y0, int x1, int y1)
+    {
+        if (x1 < x0 || y1 < y0) return;
+        _dirty = true;
+        if (x0 < _dirtyMinX) _dirtyMinX = x0;
+        if (y0 < _dirtyMinY) _dirtyMinY = y0;
+        if (x1 > _dirtyMaxX) _dirtyMaxX = x1;
+        if (y1 > _dirtyMaxY) _dirtyMaxY = y1;
+    }
+
+    private float[] Target(WashStage stage)
+    {
+        switch (stage)
+        {
+            case WashStage.Wet: return _wet;
+            case WashStage.Foam: return _foam;
+            case WashStage.Rinse: return _clean;
+            case WashStage.Scrub: return _scrub;
+            case WashStage.Dry: return _dry;
+            default: return _clean;
+        }
+    }
+
+    private float Sum(WashStage stage)
+    {
+        switch (stage)
+        {
+            case WashStage.Wet: return _wetSum;
+            case WashStage.Foam: return _foamSum;
+            case WashStage.Rinse: return _cleanSum;
+            case WashStage.Scrub: return _scrubSum;
+            case WashStage.Dry: return _drySum;
+            default: return _cleanSum;
+        }
+    }
+
+    private void SetSum(WashStage stage, float value)
+    {
+        switch (stage)
+        {
+            case WashStage.Wet: _wetSum = value; break;
+            case WashStage.Foam: _foamSum = value; break;
+            case WashStage.Rinse: _cleanSum = value; break;
+            case WashStage.Scrub: _scrubSum = value; break;
+            case WashStage.Dry: _drySum = value; break;
+        }
     }
 
     private static float Add(float[] array, int i, float amount, float silhouette)
@@ -189,11 +306,11 @@ public sealed class WashSurface
         return (after - before) * silhouette;
     }
 
-    private void Rebuild()
+    private void Rebuild(int x0, int y0, int x1, int y1)
     {
-        for (int y = 0; y < H; y++)
+        for (int y = y0; y <= y1; y++)
         {
-            for (int x = 0; x < W; x++)
+            for (int x = x0; x <= x1; x++)
             {
                 int i = y * W + x;
                 float sil = _silhouette[i];
@@ -203,30 +320,45 @@ public sealed class WashSurface
                     continue;
                 }
 
-                float wet = _wet[i];
+                float wet = _wet[i] * (1f - _dry[i]);
                 float foam = _foam[i];
                 float clean = _clean[i];
+                float scrub = _scrub[i];
+                float shade = _shade[i];
 
                 float r = 0f, g = 0f, b = 0f, a = 0f;
-                // Layer order: wet shine -> mud -> foam -> final sparkle.
-                Blend(ref r, ref g, ref b, ref a, 30f, 48f, 62f, wet * 0.44f * (1f - clean));
+                // Layer order: wet shine -> dirt -> foam -> final sparkle.
+                Blend(ref r, ref g, ref b, ref a, 30f, 78f, 116f, wet * 0.42f * (1f - clean));
 
-                float shade = _shade[i];
                 Blend(ref r, ref g, ref b, ref a,
-                    84f + shade * 46f, 60f + shade * 28f, 38f + shade * 18f,
-                    _dirt[i] * (1f - 0.72f * wet) * (1f - clean));
+                    _dirtColor.r + shade * 30f, _dirtColor.g + shade * 24f, _dirtColor.b + shade * 18f,
+                    _dirt[i] * (1f - 0.72f * wet) * (1f - clean) * (1f - 0.92f * scrub));
 
                 float bub = _bubbles[i];
                 Blend(ref r, ref g, ref b, ref a,
                     226f + 29f * bub, 236f + 19f * bub, 244f + 11f * bub,
                     foam * bub * (1f - clean));
 
-                Blend(ref r, ref g, ref b, ref a, 255f, 255f, 236f, clean * _shine[i] * 0.85f);
+                float shine = Mathf.Clamp01(_shine[i] + _dry[i] * 0.18f);
+                Blend(ref r, ref g, ref b, ref a, 255f, 255f, 238f, clean * shine * 0.85f);
 
                 a *= sil;
                 _output[i] = new Color32((byte)Mathf.Clamp(r, 0, 255), (byte)Mathf.Clamp(g, 0, 255),
                     (byte)Mathf.Clamp(b, 0, 255), (byte)Mathf.Clamp(a, 0, 255));
             }
+        }
+    }
+
+    private static Color32 DirtColor(DirtKind kind)
+    {
+        switch (kind)
+        {
+            case DirtKind.Dust: return new Color32(176, 158, 128, 255);
+            case DirtKind.Sand: return new Color32(222, 190, 112, 255);
+            case DirtKind.Puddle: return new Color32(84, 106, 132, 255);
+            case DirtKind.Leaves: return new Color32(122, 126, 62, 255);
+            case DirtKind.Snow: return new Color32(214, 232, 240, 255);
+            default: return new Color32(104, 76, 48, 255);
         }
     }
 

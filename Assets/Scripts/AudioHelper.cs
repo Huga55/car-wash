@@ -1,8 +1,9 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-/// <summary>Generates all sound effects in memory: zero audio files to download.</summary>
-public static class Sfx
+/// <summary>Generates every sound effect in memory: zero audio files to ship.
+/// Clips are cached, so a stroke only starts a short PlayOneShot call.</summary>
+public static class AudioManager
 {
     private static AudioSource _source;
     private static bool _enabled = true;
@@ -27,6 +28,11 @@ public static class Sfx
 
     public static void Play(string name)
     {
+        Play(name, 0.75f);
+    }
+
+    public static void Play(string name, float volume)
+    {
         if (!_enabled || _source == null) return;
         AudioClip clip;
         if (!Clips.TryGetValue(name, out clip))
@@ -34,7 +40,7 @@ public static class Sfx
             clip = Create(name);
             Clips[name] = clip;
         }
-        if (clip != null) _source.PlayOneShot(clip, 0.75f);
+        if (clip != null) _source.PlayOneShot(clip, volume);
     }
 
     private static AudioClip Create(string name)
@@ -44,10 +50,15 @@ public static class Sfx
             case "splash": return Tone(name, new[] { 420f, 680f }, 0.26f, 0.38f);
             case "foam": return Tone(name, new[] { 520f, 780f, 1040f }, 0.34f, 0.10f);
             case "rinse": return Tone(name, new[] { 900f, 1200f, 1500f }, 0.42f, 0.28f);
+            case "scrub": return Tone(name, new[] { 260f, 330f }, 0.22f, 0.48f);
+            case "dry": return Tone(name, new[] { 720f, 960f, 1280f }, 0.36f, 0.22f);
             case "star": return Tone(name, new[] { 523f, 659f, 784f, 1046f }, 0.55f, 0f);
             case "win": return Tone(name, new[] { 523f, 659f, 784f, 1046f, 1318f }, 0.85f, 0f);
+            case "horn": return Tone(name, new[] { 294f, 392f }, 0.30f, 0f);
+            case "unlock": return Tone(name, new[] { 392f, 523f, 659f }, 0.50f, 0f);
             case "click": return Tone(name, new[] { 660f }, 0.10f, 0f);
-            default: return Tone(name, new[] { 880f, 1120f }, 0.16f, 0f);
+            case "pop": return Tone(name, new[] { 880f, 1120f }, 0.16f, 0f);
+            default: return Tone(name, new[] { 880f }, 0.14f, 0f);
         }
     }
 
@@ -73,4 +84,17 @@ public static class Sfx
         clip.SetData(data, 0);
         return clip;
     }
+}
+
+/// <summary>Backwards-compatible short name used by the runtime scripts.</summary>
+public static class Sfx
+{
+    public static bool Enabled
+    {
+        get { return AudioManager.Enabled; }
+        set { AudioManager.Enabled = value; }
+    }
+
+    public static void Init(AudioSource source) { AudioManager.Init(source); }
+    public static void Play(string name) { AudioManager.Play(name); }
 }

@@ -31,8 +31,11 @@ public static class CarArt
             case CarKind.Police: p.Police(); break;
             case CarKind.Ambulance: p.Ambulance(); break;
             case CarKind.Bus: p.Bus(); break;
+            case CarKind.SchoolBus: p.SchoolBus(); break;
             case CarKind.FireTruck: p.FireTruck(); break;
             case CarKind.Tractor: p.Tractor(); break;
+            case CarKind.Excavator: p.Excavator(); break;
+            case CarKind.Bulldozer: p.Bulldozer(); break;
             case CarKind.DumpTruck: p.DumpTruck(); break;
             case CarKind.Mixer: p.Mixer(); break;
             case CarKind.GarbageTruck: p.GarbageTruck(); break;
@@ -439,6 +442,53 @@ public static class CarArt
             RoundRect(0.5f, 0.75f, 0.34f, 0.10f, 0.03f, Glass);
             Rect(0.5f, 0.45f, 0.68f, 0.028f, _accent);
             Circle(0.88f, 0.54f, 0.035f, Light);
+        }
+
+        public void SchoolBus()
+        {
+            Bus();
+            RoundRect(0.50f, 0.79f, 0.20f, 0.055f, 0.014f, White);
+            Rect(0.50f, 0.79f, 0.11f, 0.022f, Red);
+            RoundRect(0.09f, 0.57f, 0.055f, 0.16f, 0.012f, Red);
+            Rect(0.09f, 0.57f, 0.030f, 0.10f, White);
+            Rect(0.50f, 0.39f, 0.86f, 0.022f, Dark);
+        }
+
+        public void Excavator()
+        {
+            RoundRect(0.31f, 0.24f, 0.36f, 0.16f, 0.07f, Dark);
+            RoundRect(0.72f, 0.24f, 0.36f, 0.16f, 0.07f, Dark);
+            for (int i = 0; i < 4; i++)
+            {
+                Circle(0.22f + i * 0.055f, 0.24f, 0.017f, Metal);
+                Circle(0.63f + i * 0.055f, 0.24f, 0.017f, Metal);
+            }
+            RoundRect(0.52f, 0.43f, 0.68f, 0.20f, 0.04f, _body);
+            RoundRect(0.70f, 0.63f, 0.24f, 0.28f, 0.05f, _body);
+            Poly(new[] { Pt(0.62f, 0.64f), Pt(0.75f, 0.78f), Pt(0.79f, 0.78f), Pt(0.79f, 0.61f) }, Glass);
+            Poly(new[] { Pt(0.26f, 0.50f), Pt(0.31f, 0.86f), Pt(0.38f, 0.86f), Pt(0.34f, 0.50f) }, _accent);
+            Poly(new[] { Pt(0.34f, 0.84f), Pt(0.63f, 0.72f), Pt(0.65f, 0.66f), Pt(0.36f, 0.78f) }, _accent);
+            Poly(new[] { Pt(0.63f, 0.71f), Pt(0.58f, 0.51f), Pt(0.65f, 0.49f), Pt(0.70f, 0.68f) }, Metal);
+            Poly(new[] { Pt(0.58f, 0.51f), Pt(0.67f, 0.45f), Pt(0.77f, 0.49f), Pt(0.70f, 0.57f), Pt(0.63f, 0.53f) }, Mud);
+            Circle(0.88f, 0.42f, 0.026f, Light);
+        }
+
+        public void Bulldozer()
+        {
+            RoundRect(0.34f, 0.23f, 0.40f, 0.17f, 0.07f, Dark);
+            RoundRect(0.73f, 0.23f, 0.40f, 0.17f, 0.07f, Dark);
+            for (int i = 0; i < 5; i++)
+            {
+                Circle(0.23f + i * 0.055f, 0.23f, 0.016f, Metal);
+                Circle(0.62f + i * 0.055f, 0.23f, 0.016f, Metal);
+            }
+            RoundRect(0.60f, 0.44f, 0.58f, 0.22f, 0.04f, _body);
+            RoundRect(0.63f, 0.64f, 0.30f, 0.30f, 0.05f, _body);
+            Poly(new[] { Pt(0.55f, 0.66f), Pt(0.68f, 0.82f), Pt(0.75f, 0.82f), Pt(0.75f, 0.63f) }, Glass);
+            Rect(0.48f, 0.61f, 0.022f, 0.30f, Dark);
+            Poly(new[] { Pt(0.08f, 0.20f), Pt(0.24f, 0.72f), Pt(0.32f, 0.72f), Pt(0.18f, 0.20f) }, Metal);
+            Rect(0.12f, 0.22f, 0.20f, 0.055f, _accent);
+            Circle(0.88f, 0.42f, 0.026f, Light);
         }
     }
 }
