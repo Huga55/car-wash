@@ -77,6 +77,10 @@ namespace LittleCarWashBuild
             WriteReport(ok, "before Play Mode");
             if (!ok)
             {
+                // game-ci cannot upload artifacts from a failed step, so make
+                // every failure visible in the Unity log as well.
+                foreach (string line in _report)
+                    if (line.StartsWith("FAIL", StringComparison.Ordinal)) Debug.LogError("[verify] " + line);
                 EditorApplication.Exit(1);
                 return;
             }
@@ -299,7 +303,18 @@ namespace LittleCarWashBuild
                 _report.Add("PASS B radius +25%, clamped 0.8-1.6, adaptive, gap-free");
 
                 // Smooth completion must be gradual, not an instant texture swap.
+                // BeginCompletion only finalises zones that already reached the
+                // 82% gameplay threshold, so first bring every zone just above
+                // it and leave a small remainder for the animation.
                 var completion = BuildSurface(CarKind.Sedan, 1f, out ignored, out ignoredMask);
+                PaintAlmostFinished(completion, WashStage.Wet);
+                if (completion.MinZoneProgress(WashStage.Wet) < WashSurface.ZoneFinish ||
+                    completion.MinZoneProgress(WashStage.Wet) >= 0.999f)
+                {
+                    _report.Add("FAIL completion setup progress=" +
+                                completion.MinZoneProgress(WashStage.Wet).ToString("F3"));
+                    return false;
+                }
                 completion.BeginCompletion(WashStage.Wet);
                 completion.AdvanceCompletion(0.5f);
                 float half = completion.Progress(WashStage.Wet);
@@ -519,6 +534,21 @@ namespace LittleCarWashBuild
                 for (int x = 0; x <= 30; x++)
                     surface.Paint((x + 0.5f) / 31f, (y + 0.5f) / 21f,
                         WashingTools.Radius(stage, 1f, 1.25f), stage);
+            surface.Upload();
+        }
+
+        /// <summary>Covers every zone just past ZoneFinish while leaving a
+        /// visible remainder, which is the only state where the smooth finish
+        /// animation is used by the game.</summary>
+        private static void PaintAlmostFinished(WashSurface surface, WashStage stage)
+        {
+            float radius = WashingTools.Radius(stage, 1f, 1.25f);
+            int columns = Mathf.Max(1, Mathf.CeilToInt(0.90f / (radius * 0.75f)));
+            int rows = Mathf.Max(1, Mathf.CeilToInt(0.74f / (radius * 1.00f)));
+            for (int y = 0; y <= rows; y++)
+                for (int x = 0; x <= columns; x++)
+                    surface.Paint(Mathf.Lerp(0.05f, 0.95f, x / (float)columns),
+                        Mathf.Lerp(0.03f, 0.74f, y / (float)rows), radius, stage);
             surface.Upload();
         }
 
@@ -899,6 +929,7 @@ namespace LittleCarWashBuild
             _finished = true;
             _report.Add((ok ? "PASS " : "FAIL ") + reason);
             WriteReport(ok, "final");
+            if (!ok) Debug.LogError("[verify] FAIL " + reason);
 
             EditorApplication.update -= Tick;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
