@@ -792,7 +792,7 @@ public sealed class GameController : MonoBehaviour
 
     private void OpenReleasesPage()
     {
-        Application.openURL(AppInfo.ReleasesPageUrl);
+        Application.OpenURL(AppInfo.ReleasesPageUrl);
     }
 
     private void OnInstallConfirmed()

@@ -127,7 +127,7 @@ public static class UpdateService
             if (done != null) done(false, "PLATFORM_UNAVAILABLE");
             yield break;
         }
-        Application.openURL(info.androidUrl);
+        Application.OpenURL(info.androidUrl);
         if (progress != null) progress(1f);
         if (done != null) done(true, null);
         yield break;
@@ -151,7 +151,7 @@ public static class UpdateService
         if (done != null) done(applied, applied ? null : "INSTALL_FAILED");
 #else
         // Editor and non-shipping platforms only have a browser fallback.
-        Application.openURL(AppInfo.ReleasesPageUrl);
+        Application.OpenURL(AppInfo.ReleasesPageUrl);
         if (progress != null) progress(1f);
         if (done != null) done(true, null);
         yield break;
