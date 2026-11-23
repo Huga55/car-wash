@@ -24,7 +24,7 @@ public static class ProjectSetup
         PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.littlehands.littlecarwash");
 
         // Tablets are held in landscape; desktop starts at a comfortable window size.
-        PlayerSettings.defaultInterfaceOrientation = UIOrientation.Landscape;
+        PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
         PlayerSettings.allowedAutorotateToLandscapeLeft = true;
         PlayerSettings.allowedAutorotateToLandscapeRight = true;
         PlayerSettings.allowedAutorotateToPortrait = false;
@@ -35,7 +35,11 @@ public static class ProjectSetup
 
         PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
         PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64 | AndroidArchitecture.ARMv7;
-        PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel21;
+        PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel22;
+
+        // The game uses UnityEngine.Input and StandaloneInputModule, so make sure
+        // the project is not switched to the newer Input System package only.
+        ForceLegacyInputManager();
 
         const string scenePath = "Assets/Scenes/Game.unity";
         if (AssetDatabase.LoadAssetAtPath<SceneAsset>(scenePath) != null)
@@ -52,6 +56,23 @@ public static class ProjectSetup
             }
             if (!found) scenes.Add(new EditorBuildSettingsScene(scenePath, true));
             EditorBuildSettings.scenes = scenes.ToArray();
+        }
+    }
+
+    private static void ForceLegacyInputManager()
+    {
+        // There is no public PlayerSettings property for Active Input Handling in
+        // Unity 2022.3, so edit the serialized PlayerSettings object directly.
+        // 0 = Input Manager (legacy), 1 = Input System Package, 2 = Both.
+        Object[] assets = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset");
+        if (assets == null || assets.Length == 0) return;
+
+        var settings = new SerializedObject(assets[0]);
+        var handler = settings.FindProperty("activeInputHandler");
+        if (handler != null && handler.intValue != 0)
+        {
+            handler.intValue = 0;
+            settings.ApplyModifiedProperties();
         }
     }
 }

@@ -25,7 +25,7 @@ There is no timer pressure and no way to fail: once about 60% of the car is swip
 2. Open this folder as a project in Unity Hub.
 3. Press **Play** in the editor (mouse drag = finger swipe).
 
-`Assets/Editor/ProjectSetup.cs` applies the player settings on open: product name, Android package id, landscape orientation, 1280×800 desktop window, IL2CPP with ARM64 + ARMv7, minimum Android API 21.
+`Assets/Editor/ProjectSetup.cs` applies the player settings on open: product name, Android package id, landscape orientation, 1280×800 desktop window, IL2CPP with ARM64 + ARMv7, minimum Android API 22, and legacy Input Manager (the touch/mouse code uses `UnityEngine.Input`).
 
 ## Automatic GitHub builds
 
