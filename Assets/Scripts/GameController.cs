@@ -11,7 +11,6 @@ public sealed class GameController : MonoBehaviour
 {
     private enum ScreenId { Home, Levels, Play }
 
-    [SerializeField] private float finishAt = 0.62f;
     [SerializeField] private Vector2 uiReferenceResolution = new Vector2(1200f, 800f);
     [SerializeField] private float stageTransitionSeconds = 0.9f;
     [SerializeField] private float rewardSparkleSeconds = 0.45f;

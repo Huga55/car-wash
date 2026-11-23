@@ -237,6 +237,15 @@ public sealed class WashSurface
         return Mathf.Clamp01(ZoneSums(stage)[zone] / _zoneTotal[zone]);
     }
 
+    /// <summary>Number of overlay pixels with meaningful opacity. Used by the
+    /// in-Editor verification to prove that dirt is actually visible.</summary>
+    public int VisiblePixelCount()
+    {
+        int count = 0;
+        for (int i = 0; i < N; i++) if (_output[i].a > 96) count++;
+        return count;
+    }
+
     public bool HasZone(int zone)
     {
         return zone >= 0 && zone < ZoneCount && _zoneTotal[zone] > 0f;

@@ -109,8 +109,7 @@ namespace LittleCarWashBuild
                 Color32[] sedan = CarArt.Render(CarKind.Sedan,
                     new Color32(72, 156, 255, 255), new Color32(255, 208, 74, 255), 1f, 384, 256);
                 var surface = new WashSurface(sedan, 384, 256, 0.8f, 7, DirtKind.Mud);
-                int visible = 0;
-                foreach (Color32 p in surface.Texture.Pixels) if (p.a > 96) visible++;
+                int visible = surface.VisiblePixelCount();
                 if (visible < 10000)
                 {
                     _report.Add("FAIL visible dirt pixels=" + visible);
