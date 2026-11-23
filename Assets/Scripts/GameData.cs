@@ -86,7 +86,7 @@ public static class GameData
     public const int LevelCount = 30;
 
     // First 20 levels cover every transport type requested in the design brief.
-    private static readonly CarKind[] Kinds =
+    public static readonly CarKind[] Kinds =
     {
         CarKind.Sedan, CarKind.Sports, CarKind.Taxi, CarKind.Police, CarKind.FireTruck,
         CarKind.Ambulance, CarKind.DumpTruck, CarKind.Excavator, CarKind.Bulldozer, CarKind.Tractor,
@@ -170,13 +170,14 @@ public static class GameData
         return levels;
     }
 
-    /// <summary>Stages for a level. The sponge is introduced after the first three
-    /// easy cars so the first level stays as simple as possible.</summary>
+    /// <summary>Stages follow the design brief: wet, foam, scrub, rinse, dry.
+    /// The sponge is introduced after the first three easy cars so the first
+    /// level stays as simple as possible.</summary>
     public static WashStage[] StagesFor(int level)
     {
         bool scrub = level >= 0 && level < LevelCount && Levels[level].UseScrub;
         return scrub
-            ? new[] { WashStage.Wet, WashStage.Foam, WashStage.Rinse, WashStage.Scrub, WashStage.Dry }
+            ? new[] { WashStage.Wet, WashStage.Foam, WashStage.Scrub, WashStage.Rinse, WashStage.Dry }
             : new[] { WashStage.Wet, WashStage.Foam, WashStage.Rinse, WashStage.Dry };
     }
 

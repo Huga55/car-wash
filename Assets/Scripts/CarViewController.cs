@@ -12,6 +12,8 @@ public sealed class CarViewController
     private Sprite _carSprite;
     private Sprite _overlaySprite;
     private Vector2 _home;
+    private float _wobble;
+    private bool _driving;
 
     public CarViewController(Image car, Image overlay)
     {
@@ -26,6 +28,8 @@ public sealed class CarViewController
     {
         Dispose();
         _home = new Vector2(0f, 0f);
+        _wobble = 0f;
+        _driving = false;
 
         _carTexture = CarArt.MakeTexture(pixels, 384, 256, "Car" + level.Index);
         _carSprite = Sprite.Create(_carTexture, new Rect(0, 0, 384, 256), new Vector2(0.5f, 0.5f), 100f);
@@ -53,6 +57,28 @@ public sealed class CarViewController
     public void ResetPose()
     {
         SetPose(_home, 0f, 1f);
+    }
+
+    /// <summary>Gentle idle suspension and a short damped reaction to washing.</summary>
+    public void UpdateIdle(float time)
+    {
+        if (_driving || _carRect == null) return;
+        float dt = Time.unscaledDeltaTime;
+        _wobble = Mathf.Max(0f, _wobble - dt * 2.2f);
+        _home.x = Mathf.Lerp(_home.x, 0f, Mathf.Clamp01(dt * 2f));
+        float bob = Mathf.Sin(time * 1.7f) * 2.2f;
+        float kick = Mathf.Sin(time * 16f) * _wobble * 3.4f;
+        float angle = Mathf.Sin(time * 1.1f) * 0.45f + kick * 0.35f;
+        SetPose(_home + new Vector2(0f, bob + kick), angle, 1f);
+    }
+
+    /// <summary>A small body reaction wherever water or a sponge lands.</summary>
+    public void WashPulse(Vector2 uv)
+    {
+        if (_driving) return;
+        float side = (uv.x - 0.5f) * 2f;
+        _wobble = Mathf.Min(1f, _wobble + 0.32f);
+        _home.x = Mathf.Clamp(_home.x - side * 0.35f, -3f, 3f);
     }
 
     public void DriveAway(float t)

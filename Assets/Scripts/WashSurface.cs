@@ -15,6 +15,12 @@ public sealed class WashSurface
     public const int H = 256;
     private const int N = W * H;
 
+    // Six simple logical zones (3 columns x upper/lower row). Every stage must
+    // reach ZoneFinish in ALL zones before it can advance: painting one spot
+    // over and over can no longer finish a stage.
+    public const int ZoneCount = 6;
+    public const float ZoneFinish = 0.82f;
+
     private readonly Texture2D _texture;
     private readonly Color32[] _output;
     private readonly Color32[] _upload;
@@ -28,6 +34,13 @@ public sealed class WashSurface
     private readonly float[] _shine = new float[N];
     private readonly float[] _shade = new float[N];
     private readonly float[] _silhouette = new float[N];
+    private readonly byte[] _zone = new byte[N];
+    private readonly float[] _zoneTotal = new float[ZoneCount];
+    private readonly float[][] _zoneSums =
+    {
+        new float[ZoneCount], new float[ZoneCount], new float[ZoneCount],
+        new float[ZoneCount], new float[ZoneCount]
+    };
     private readonly Color32 _dirtColor;
 
     private float _total;
@@ -75,13 +88,18 @@ public sealed class WashSurface
                 _silhouette[i] = sil;
                 _total += sil;
 
+                int column = Mathf.Min(2, x * 3 / W);
+                byte zone = (byte)((y > H * 0.5f ? 0 : 3) + column);
+                _zone[i] = zone;
+                _zoneTotal[zone] += sil;
+
                 float n = Mathf.PerlinNoise(x * 0.045f + seed * 0.17f, y * 0.045f + seed * 0.29f);
                 float h = Hash(x, y, seed);
-                float upper = y > H * 0.62f ? 0.55f : 1f; // leave windows a little clearer
+                float upper = y > H * 0.62f ? 0.82f : 1f; // windows are a little clearer, not clean
                 float patch = dirtType == DirtKind.Leaves
                     ? (Mathf.PerlinNoise(x * 0.12f, y * 0.12f) > 0.45f ? 1.35f : 0.35f)
                     : 1f;
-                _dirt[i] = Mathf.Clamp01((0.60f + 0.28f * n + 0.22f * h) * dirtAmount * dirtScale * upper * patch);
+                _dirt[i] = Mathf.Clamp01((0.72f + 0.30f * n + 0.20f * h) * dirtAmount * dirtScale * upper * patch);
                 _bubbles[i] = 0.58f + 0.42f * Mathf.PerlinNoise(x * 0.085f + 7f, y * 0.085f + 13f);
                 _shade[i] = h;
 
@@ -153,45 +171,36 @@ public sealed class WashSurface
                 float amount = falloff * 0.92f;
                 changed = true;
 
-                switch (stage)
+                PaintMask(stage, i, amount);
+
+                if (stage == WashStage.Rinse)
                 {
-                    case WashStage.Wet:
-                        _wetSum += Add(_wet, i, amount, _silhouette[i]);
-                        break;
-                    case WashStage.Foam:
-                        _foamSum += Add(_foam, i, amount, _silhouette[i]);
-                        break;
-                    case WashStage.Rinse:
-                        _cleanSum += Add(_clean, i, amount, _silhouette[i]);
-                        _foam[i] *= 1f - falloff * 0.95f;
-                        _wet[i] *= 1f - falloff * 0.75f;
-                        break;
-                    case WashStage.Scrub:
-                        _scrubSum += Add(_scrub, i, amount, _silhouette[i]);
-                        break;
-                    case WashStage.Dry:
-                        _drySum += Add(_dry, i, amount, _silhouette[i]);
-                        break;
+                    _foam[i] *= 1f - falloff * 0.95f;
+                    _wet[i] *= 1f - falloff * 0.75f;
                 }
             }
         }
         if (changed) MarkDirty(x0, y0, x1, y1);
     }
 
-    /// <summary>Finish the current stage so no tiny spot is left behind: no
-    /// failure, no pixel-perfect swiping, no adult help needed.</summary>
+    /// <summary>Finish the current stage so no tiny spot is left behind. Only
+    /// zones that are already reasonably covered are completed, so a child
+    /// still has to visit the whole car before the stage can advance.</summary>
     public void FillCurrent(WashStage stage)
     {
         if (stage == WashStage.Done) return;
         float[] target = Target(stage);
-        float sum = 0f;
+        float[] zoneSum = ZoneSums(stage);
+
         for (int i = 0; i < N; i++)
         {
             if (_silhouette[i] < 0.02f) continue;
+            byte z = _zone[i];
+            if (_zoneTotal[z] <= 0f || zoneSum[z] / _zoneTotal[z] >= ZoneFinish) continue;
             target[i] = 1f;
-            sum += _silhouette[i];
         }
-        SetSum(stage, sum);
+
+        Recount(stage);
         MarkDirty(0, 0, W - 1, H - 1);
         Upload();
     }
@@ -199,12 +208,9 @@ public sealed class WashSurface
     /// <summary>Final celebration state: clean, dry and shiny with no dirt left.</summary>
     public void FinishAll()
     {
-        float sum = 0f;
         for (int i = 0; i < N; i++)
         {
             if (_silhouette[i] < 0.02f) continue;
-            float sil = _silhouette[i];
-            sum += sil;
             _dirt[i] = 0f;
             _wet[i] = 0f;
             _foam[i] = 0f;
@@ -212,11 +218,7 @@ public sealed class WashSurface
             _scrub[i] = 1f;
             _dry[i] = 1f;
         }
-        _wetSum = sum;
-        _foamSum = sum;
-        _cleanSum = sum;
-        _scrubSum = sum;
-        _drySum = sum;
+        for (int s = 0; s < (int)WashStage.Done; s++) Recount((WashStage)s);
         MarkDirty(0, 0, W - 1, H - 1);
         Upload();
     }
@@ -225,6 +227,98 @@ public sealed class WashSurface
     {
         if (stage == WashStage.Done) return 1f;
         return Mathf.Clamp01(Sum(stage) / Mathf.Max(1f, _total));
+    }
+
+    /// <summary>Coverage of one logical zone, used for the small completion ticks.</summary>
+    public float ZoneProgress(WashStage stage, int zone)
+    {
+        if (stage == WashStage.Done) return 1f;
+        if (zone < 0 || zone >= ZoneCount || _zoneTotal[zone] <= 0f) return 1f;
+        return Mathf.Clamp01(ZoneSums(stage)[zone] / _zoneTotal[zone]);
+    }
+
+    public bool HasZone(int zone)
+    {
+        return zone >= 0 && zone < ZoneCount && _zoneTotal[zone] > 0f;
+    }
+
+    /// <summary>The weakest zone decides whether the stage is finished.</summary>
+    public float MinZoneProgress(WashStage stage)
+    {
+        if (stage == WashStage.Done) return 1f;
+        float weakest = 1f;
+        for (int z = 0; z < ZoneCount; z++)
+        {
+            if (_zoneTotal[z] <= 0f) continue;
+            weakest = Mathf.Min(weakest, ZoneProgress(stage, z));
+        }
+        return weakest;
+    }
+
+    private void PaintMask(WashStage stage, int i, float amount)
+    {
+        float sil = _silhouette[i];
+        int z = _zone[i];
+        float added;
+        switch (stage)
+        {
+            case WashStage.Wet:
+                added = Add(_wet, i, amount, sil);
+                _wetSum += added;
+                _zoneSums[0][z] += added;
+                break;
+            case WashStage.Foam:
+                added = Add(_foam, i, amount, sil);
+                _foamSum += added;
+                _zoneSums[1][z] += added;
+                break;
+            case WashStage.Rinse:
+                added = Add(_clean, i, amount, sil);
+                _cleanSum += added;
+                _zoneSums[2][z] += added;
+                break;
+            case WashStage.Scrub:
+                added = Add(_scrub, i, amount, sil);
+                _scrubSum += added;
+                _zoneSums[3][z] += added;
+                break;
+            case WashStage.Dry:
+                added = Add(_dry, i, amount, sil);
+                _drySum += added;
+                _zoneSums[4][z] += added;
+                break;
+            default:
+                return;
+        }
+    }
+
+    private float[] ZoneSums(WashStage stage)
+    {
+        switch (stage)
+        {
+            case WashStage.Wet: return _zoneSums[0];
+            case WashStage.Foam: return _zoneSums[1];
+            case WashStage.Rinse: return _zoneSums[2];
+            case WashStage.Scrub: return _zoneSums[3];
+            case WashStage.Dry: return _zoneSums[4];
+            default: return _zoneSums[0];
+        }
+    }
+
+    private void Recount(WashStage stage)
+    {
+        float[] mask = Target(stage);
+        float[] zones = ZoneSums(stage);
+        Array.Clear(zones, 0, zones.Length);
+        float total = 0f;
+        for (int i = 0; i < N; i++)
+        {
+            if (_silhouette[i] < 0.02f) continue;
+            float value = mask[i] * _silhouette[i];
+            total += value;
+            zones[_zone[i]] += value;
+        }
+        SetSum(stage, total);
     }
 
     public void Upload()
@@ -332,7 +426,7 @@ public sealed class WashSurface
 
                 Blend(ref r, ref g, ref b, ref a,
                     _dirtColor.r + shade * 30f, _dirtColor.g + shade * 24f, _dirtColor.b + shade * 18f,
-                    _dirt[i] * (1f - 0.72f * wet) * (1f - clean) * (1f - 0.92f * scrub));
+                    _dirt[i] * (1f - 0.38f * wet) * (1f - clean) * (1f - 0.70f * scrub));
 
                 float bub = _bubbles[i];
                 Blend(ref r, ref g, ref b, ref a,
@@ -343,8 +437,11 @@ public sealed class WashSurface
                 Blend(ref r, ref g, ref b, ref a, 255f, 255f, 238f, clean * shine * 0.85f);
 
                 a *= sil;
-                _output[i] = new Color32((byte)Mathf.Clamp(r, 0, 255), (byte)Mathf.Clamp(g, 0, 255),
-                    (byte)Mathf.Clamp(b, 0, 255), (byte)Mathf.Clamp(a, 0, 255));
+                // Mathf.Clamp has float and int overloads. Without 255f the
+                // float overload is selected and the byte cast truncates every
+                // 0..1 channel to zero, leaving the wash overlay invisible.
+                _output[i] = new Color32((byte)Mathf.Clamp(r, 0f, 255f), (byte)Mathf.Clamp(g, 0f, 255f),
+                    (byte)Mathf.Clamp(b, 0f, 255f), (byte)Mathf.Clamp(a * 255f, 0f, 255f));
             }
         }
     }

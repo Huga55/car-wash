@@ -16,6 +16,7 @@ public static class UiFactory
 
     private static Font _font;
     private static Sprite _round;
+    private static Sprite _soft;
     private static Sprite _star;
     private static Sprite _lock;
     private static readonly Sprite[] _tools = new Sprite[4];
@@ -75,6 +76,37 @@ public static class UiFactory
                     SpriteMeshType.FullRect, new Vector4(20, 20, 20, 20));
             }
             return _round;
+        }
+    }
+
+    // Thin bars, dots and small badges need a much smaller 9-slice border; a
+    // 20px border on a 13px-high bar degenerates into a flat stretched strip.
+    public static Sprite SoftSprite
+    {
+        get
+        {
+            if (_soft == null)
+            {
+                const int s = 32;
+                var pixels = new Color32[s * s];
+                for (int y = 0; y < s; y++)
+                {
+                    for (int x = 0; x < s; x++)
+                    {
+                        float dx = Mathf.Max(Mathf.Abs(x + 0.5f - 16f) - 9f, 0f);
+                        float dy = Mathf.Max(Mathf.Abs(y + 0.5f - 16f) - 9f, 0f);
+                        float d = Mathf.Sqrt(dx * dx + dy * dy) - 7f;
+                        byte a = (byte)(Mathf.Clamp01(0.5f - d) * 255f);
+                        pixels[y * s + x] = new Color32(255, 255, 255, a);
+                    }
+                }
+                var tex = new Texture2D(s, s, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+                tex.SetPixels32(pixels);
+                tex.Apply(false, false);
+                _soft = Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), 100f, 0,
+                    SpriteMeshType.FullRect, new Vector4(4, 4, 4, 4));
+            }
+            return _soft;
         }
     }
 

@@ -64,6 +64,14 @@ namespace LittleCarWashBuild
         /// from InitializeOnLoad, so batch builds never see a pending domain reload.</summary>
         private static void ApplyPlayerSettings(BuildTarget target, string outputPath)
         {
+            // The game uses the legacy Input API and StandaloneInputModule.
+            // CI-generated ProjectSettings may default to the new Input System.
+            var inputHandler = typeof(PlayerSettings).GetProperty("activeInputHandler",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.NonPublic);
+            if (inputHandler != null)
+                inputHandler.SetValue(null, Enum.Parse(inputHandler.PropertyType, "InputManager"), null);
+
             PlayerSettings.companyName = "Little Car Wash";
             PlayerSettings.productName = "Little Car Wash";
             PlayerSettings.bundleVersion = "1.0";

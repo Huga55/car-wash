@@ -9,8 +9,40 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    name: Visual + gameplay verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Run in-Editor verification
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion: 2022.3.61f1
+          targetPlatform: StandaloneLinux64
+          buildMethod: LittleCarWashBuild.VisualVerification.Run
+          versioning: None
+          allowDirtyBuild: true
+
+      - name: Upload verification artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VisualVerification
+          path: build/verification
+          if-no-files-found: error
+          retention-days: 30
+
   build:
     name: Build ${{ matrix.target }}
+    needs: verify
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

@@ -72,6 +72,7 @@ public sealed class WashingController
     private float _radius;
 
     public Action<WashStage> StrokeStarted;
+    public Action<Vector2, WashStage> StrokeMoved;
 
     public WashingController(RectTransform washRect)
     {
@@ -134,6 +135,21 @@ public sealed class WashingController
         return _surface == null ? 0f : _surface.Progress(stage);
     }
 
+    public float MinZoneProgress(WashStage stage)
+    {
+        return _surface == null ? 0f : _surface.MinZoneProgress(stage);
+    }
+
+    public float ZoneProgress(WashStage stage, int zone)
+    {
+        return _surface == null ? 0f : _surface.ZoneProgress(stage, zone);
+    }
+
+    public bool HasZone(int zone)
+    {
+        return _surface != null && _surface.HasZone(zone);
+    }
+
     public void FillCurrent(WashStage stage)
     {
         _last.Clear();
@@ -167,6 +183,7 @@ public sealed class WashingController
             _surface.Upload();
             if (StrokeStarted != null) StrokeStarted(stage);
         }
+        if (StrokeMoved != null) StrokeMoved(uv, stage);
         _last[id] = uv;
     }
 

@@ -66,6 +66,11 @@ public sealed class GameController : MonoBehaviour
     private Image _progressFill;
     private Image _flash;
     private readonly Image[] _stageDots = new Image[5];
+    private readonly Image[] _zoneDots = new Image[WashSurface.ZoneCount];
+    private readonly Image[] _effects = new Image[8];
+    private readonly float[] _effectLife = new float[8];
+    private int _effectCursor;
+    private float _displayProgress;
     private readonly Image[] _sparkles = new Image[6];
     private readonly Image[] _completeStars = new Image[3];
     private readonly Image[] _confetti = new Image[10];
@@ -113,11 +118,15 @@ public sealed class GameController : MonoBehaviour
 
         AnimateHint(time);
         AnimateSparkles(time);
+        AnimateEffects();
+        if (_car != null) _car.UpdateIdle(time);
 
         _washing.Update(_stage, true);
         float progress = _washing.Progress(_stage);
-        _progressFill.rectTransform.localScale = new Vector3(Mathf.Max(0.001f, progress), 1f, 1f);
-        if (progress >= finishAt) StartCoroutine(AdvanceStage());
+        _displayProgress = Mathf.Lerp(_displayProgress, progress, Mathf.Clamp01(Time.unscaledDeltaTime * 7f));
+        _progressFill.rectTransform.localScale = new Vector3(Mathf.Max(0.001f, _displayProgress), 1f, 1f);
+        UpdateZoneDots();
+        if (_washing.MinZoneProgress(_stage) >= WashSurface.ZoneFinish) StartCoroutine(AdvanceStage());
     }
 
     // ------------------------------------------------------------------ UI
@@ -258,11 +267,11 @@ public sealed class GameController : MonoBehaviour
 
         _levelLabel = UiFactory.Label(_playPanel.transform, "LevelLabel", "", 28, Ink,
             TextAnchor.MiddleLeft, new Vector2(0f, 1f), new Vector2(0f, 1f),
-            new Vector2(430f, 60f), new Vector2(160f, -54f));
+            new Vector2(430f, 60f), new Vector2(230f, -54f));
         for (int i = 0; i < _stageDots.Length; i++)
             _stageDots[i] = UiFactory.CenteredImage(_playPanel.transform, "Stage" + i,
                 new Color32(255, 255, 255, 160), new Vector2(24f, 24f),
-                new Vector2(-104f + i * 52f, -52f), UiFactory.RoundSprite);
+                new Vector2(80f + i * 52f, -54f), UiFactory.SoftSprite);
         var pauseButton = UiFactory.Button(_playPanel.transform, "Pause", Loc.T(Loc.Pause), Pink, 26,
             new Vector2(150f, 64f), new Vector2(-110f, -54f), ShowPause);
         var pauseRect = pauseButton.GetComponent<RectTransform>();
@@ -273,8 +282,8 @@ public sealed class GameController : MonoBehaviour
             new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(370f, 18f), new Vector2(0f, -122f),
             UiFactory.RoundSprite, true);
         _progressFill = UiFactory.Image(_playPanel.transform, "ProgressFill", Green,
-            new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(360f, 13f), new Vector2(-180f, -122f),
-            UiFactory.RoundSprite, true);
+            new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(360f, 16f), new Vector2(-180f, -122f),
+            UiFactory.SoftSprite, true);
         _progressFill.rectTransform.pivot = new Vector2(0f, 0.5f);
         _progressFill.rectTransform.localScale = new Vector3(0.001f, 1f, 1f);
 
@@ -288,6 +297,28 @@ public sealed class GameController : MonoBehaviour
 
         var carImage = UiFactory.StretchImage(_washRect, "Car", Color.white);
         var overlayImage = UiFactory.StretchImage(_washRect, "WashLayer", Color.white);
+
+        // Small translucent markers show which parts of the car still need
+        // attention. They are hidden automatically for zones with no car pixels.
+        for (int i = 0; i < _zoneDots.Length; i++)
+        {
+            int column = i % 3;
+            int row = i / 3;
+            _zoneDots[i] = UiFactory.CenteredImage(_washRect, "Zone" + i,
+                new Color(1f, 1f, 1f, 0.35f), new Vector2(20f, 20f),
+                new Vector2(-260f + column * 260f, -110f + row * 220f), UiFactory.SoftSprite);
+            _zoneDots[i].gameObject.SetActive(false);
+        }
+
+        // A tiny pool of transient images gives every stroke visible water,
+        // foam, sponge or polish feedback without a particle system.
+        for (int i = 0; i < _effects.Length; i++)
+        {
+            _effects[i] = UiFactory.CenteredImage(_washRect, "Effect" + i,
+                new Color(1f, 1f, 1f, 0f), new Vector2(36f, 36f), Vector2.zero, UiFactory.SoftSprite);
+            _effects[i].gameObject.SetActive(false);
+        }
+
         for (int i = 0; i < _sparkles.Length; i++)
         {
             _sparkles[i] = UiFactory.CenteredImage(_washRect, "Sparkle" + i, Yellow,
@@ -320,11 +351,11 @@ public sealed class GameController : MonoBehaviour
         _toolIcon = UiFactory.CenteredImage(_playPanel.transform, "ToolIcon", Color.white,
             new Vector2(82f, 82f), new Vector2(-448f, 56f), WashingTools.Icon(WashStage.Wet));
         _toolLabel = UiFactory.Label(_playPanel.transform, "ToolLabel", Loc.StageTool(WashStage.Wet), 28, Ink,
-            TextAnchor.MiddleLeft, new Vector2(0f, 0f), new Vector2(0f, 0f),
+            TextAnchor.MiddleLeft, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
             new Vector2(180f, 70f), new Vector2(-300f, 56f));
         _instruction = UiFactory.CenteredLabel(_playPanel.transform, "Instruction",
-            Loc.StageInstruction(WashStage.Wet), 30, Ink, new Vector2(460f, 76f), new Vector2(20f, 56f));
-        AddSoundButton(_playPanel.transform, new Vector2(0f, 0f), new Vector2(300f, 56f),
+            Loc.StageInstruction(WashStage.Wet), 30, Ink, new Vector2(440f, 76f), new Vector2(-10f, 56f));
+        AddSoundButton(_playPanel.transform, new Vector2(0.5f, 0f), new Vector2(310f, 56f),
             new Vector2(140f, 62f));
         UiFactory.Button(_playPanel.transform, "ToMenu", Loc.T(Loc.ToMenu), Blue, 26,
             new Vector2(160f, 62f), new Vector2(462f, 56f), ShowPause);
@@ -334,6 +365,7 @@ public sealed class GameController : MonoBehaviour
         _car = new CarViewController(carImage, overlayImage);
         _washing = new WashingController(_washRect);
         _washing.StrokeStarted = OnStrokeStarted;
+        _washing.StrokeMoved = OnStrokeMoved;
         _animal = new AnimalActor(animalPortrait, animalSpeech, new Vector2(330f, -70f));
         UpdateSoundLabels();
     }
@@ -559,7 +591,11 @@ public sealed class GameController : MonoBehaviour
         _instruction.text = Loc.StageInstruction(_stage);
         _toolLabel.text = Loc.StageTool(_stage);
         _toolIcon.sprite = WashingTools.Icon(_stage);
+        _toolIcon.rectTransform.localScale = Vector3.one;
+        _displayProgress = 0f;
         _progressFill.rectTransform.localScale = new Vector3(0.001f, 1f, 1f);
+        for (int i = 0; i < _zoneDots.Length; i++)
+            _zoneDots[i].gameObject.SetActive(_washing != null && _washing.HasZone(i));
 
         for (int i = 0; i < _stageDots.Length; i++)
         {
@@ -632,6 +668,51 @@ public sealed class GameController : MonoBehaviour
         }
     }
 
+    private void AnimateEffects()
+    {
+        float dt = Time.unscaledDeltaTime;
+        for (int i = 0; i < _effects.Length; i++)
+        {
+            if (_effectLife[i] <= 0f) continue;
+            _effectLife[i] -= dt;
+            Image fx = _effects[i];
+            if (_effectLife[i] <= 0f)
+            {
+                fx.gameObject.SetActive(false);
+                continue;
+            }
+            float t = _effectLife[i] / 0.42f;
+            Color c = fx.color;
+            c.a = t * 0.85f;
+            fx.color = c;
+            Vector2 pos = fx.rectTransform.anchoredPosition;
+            pos.y += dt * 26f;
+            fx.rectTransform.anchoredPosition = pos;
+            float s = 1.15f - t * 0.45f;
+            fx.rectTransform.localScale = new Vector3(s, s, 1f);
+        }
+    }
+
+    private void UpdateZoneDots()
+    {
+        for (int i = 0; i < _zoneDots.Length; i++)
+        {
+            Image dot = _zoneDots[i];
+            if (!dot.gameObject.activeSelf) continue;
+            float p = _washing.ZoneProgress(_stage, i);
+            dot.color = p >= WashSurface.ZoneFinish ? new Color(0.35f, 0.85f, 0.5f, 0.85f) :
+                p >= 0.4f ? new Color(1f, 0.85f, 0.35f, 0.75f) :
+                new Color(1f, 0.55f, 0.45f, 0.7f);
+            float s = p >= WashSurface.ZoneFinish ? 0.7f : 1f;
+            dot.rectTransform.localScale = new Vector3(s, s, 1f);
+        }
+    }
+
+    private void HideZoneDots()
+    {
+        for (int i = 0; i < _zoneDots.Length; i++) _zoneDots[i].gameObject.SetActive(false);
+    }
+
     private void AnimateFlash()
     {
         if (_flashAlpha <= 0f) return;
@@ -672,11 +753,56 @@ public sealed class GameController : MonoBehaviour
     {
         _hint.SetActive(false);
         AudioManager.Play(WashingTools.Sound(stage));
+        _toolIcon.rectTransform.localScale = new Vector3(1.18f, 1.18f, 1f);
+    }
+
+    private void OnStrokeMoved(Vector2 uv, WashStage stage)
+    {
+        if (_car != null) _car.WashPulse(uv);
+        _toolIcon.rectTransform.localScale = Vector3.Lerp(_toolIcon.rectTransform.localScale,
+            Vector3.one, 0.35f);
+
+        int i = _effectCursor;
+        _effectCursor = (_effectCursor + 1) % _effects.Length;
+        Image fx = _effects[i];
+        fx.gameObject.SetActive(true);
+        fx.rectTransform.anchoredPosition = new Vector2(
+            (uv.x - 0.5f) * _washRect.sizeDelta.x, (uv.y - 0.5f) * _washRect.sizeDelta.y);
+        float size = 34f;
+        Color color;
+        switch (stage)
+        {
+            case WashStage.Foam:
+                size = 44f;
+                color = new Color(1f, 1f, 1f, 0.85f);
+                break;
+            case WashStage.Scrub:
+                size = 30f;
+                color = new Color(1f, 0.95f, 0.7f, 0.7f);
+                break;
+            case WashStage.Rinse:
+                size = 28f;
+                color = new Color(0.55f, 0.82f, 1f, 0.8f);
+                break;
+            case WashStage.Dry:
+                size = 40f;
+                color = new Color(1f, 0.98f, 0.85f, 0.7f);
+                break;
+            default:
+                size = 30f;
+                color = new Color(0.6f, 0.82f, 1f, 0.8f);
+                break;
+        }
+        fx.rectTransform.sizeDelta = new Vector2(size, size);
+        fx.color = color;
+        fx.rectTransform.localScale = Vector3.one;
+        _effectLife[i] = 0.42f;
     }
 
     private IEnumerator AdvanceStage()
     {
         _transitioning = true;
+        HideZoneDots();
         _washing.FillCurrent(_stage);
         _progressFill.rectTransform.localScale = new Vector3(1f, 1f, 1f);
         _flashAlpha = 0.42f;
@@ -701,6 +827,7 @@ public sealed class GameController : MonoBehaviour
     {
         _rewarding = true;
         _hint.SetActive(false);
+        HideZoneDots();
         for (int i = 0; i < _sparkles.Length; i++) _sparkles[i].gameObject.SetActive(false);
 
         _washing.FinishAll();

@@ -79,9 +79,15 @@ public static class CarArt
             Pixels = new Color32[w * h];
         }
 
+        // All authored points are normalised 0..1 with y pointing up. Primitive
+        // methods below work in pixel space, so convert here. Forgetting the
+        // W/H multiplication drew every part around the texture's top-left
+        // corner and made the cars look like scattered fragments.
         private Vector2 P(float x, float y)
         {
-            return new Vector2(0.5f + (x - 0.5f) * _scale, 0.5f + (y - 0.5f) * _scale);
+            return new Vector2(
+                (0.5f + (x - 0.5f) * _scale) * W,
+                (0.5f + (y - 0.5f) * _scale) * H);
         }
 
         private void Plot(int x, int y, Color32 source, float alpha)
@@ -159,7 +165,7 @@ public static class CarArt
             float minX = W, maxX = 0, minY = H, maxY = 0;
             for (int i = 0; i < points.Length; i++)
             {
-                mapped[i] = new Vector2(P(points[i].x, points[i].y).x * W, P(points[i].x, points[i].y).y * H);
+                mapped[i] = P(points[i].x, points[i].y);
                 minX = Mathf.Min(minX, mapped[i].x);
                 maxX = Mathf.Max(maxX, mapped[i].x);
                 minY = Mathf.Min(minY, mapped[i].y);
