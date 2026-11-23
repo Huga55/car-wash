@@ -45,6 +45,7 @@ jobs:
           unityVersion: 2022.3.61f1
           targetPlatform: ${{ matrix.target }}
           buildName: LittleCarWash
+          buildMethod: LittleCarWashBuild.Build.Run
           versioning: None
           allowDirtyBuild: true
 

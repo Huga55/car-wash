@@ -25,7 +25,7 @@ There is no timer pressure and no way to fail: once about 60% of the car is swip
 2. Open this folder as a project in Unity Hub.
 3. Press **Play** in the editor (mouse drag = finger swipe).
 
-`Assets/Editor/ProjectSetup.cs` applies the player settings on open: product name, Android package id, landscape orientation, 1280×800 desktop window, IL2CPP with ARM64 + ARMv7 and minimum Android API 22.
+`Assets/Editor/BuildScript.cs` is the CI entry point. It passes `Assets/Scenes/Game.unity` directly to Unity, so builds never depend on the editor's "Scenes in Build" list. The game itself sets landscape orientation and a sensible frame rate at runtime.
 
 ## Automatic GitHub builds
 
@@ -76,7 +76,7 @@ Assets/
     GameArt.cs               Background themes
     UiFactory.cs             Runtime UI widgets (rounded panels, stars, text)
     AudioHelper.cs           Synthesised sound effects
-  Editor/ProjectSetup.cs     Player settings + build scene registration
+  Editor/BuildScript.cs      Explicit CI build method (hardcoded scene path)
 .github/workflows/build.yml  Android + Windows CI
 ```
 
