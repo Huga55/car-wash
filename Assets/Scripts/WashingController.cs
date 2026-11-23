@@ -73,6 +73,8 @@ public sealed class WashingController
 
     public Action<WashStage> StrokeStarted;
     public Action<Vector2, WashStage> StrokeMoved;
+    public Action StrokeEnded;
+    private bool _wasActive;
 
     public WashingController(RectTransform washRect)
     {
@@ -86,6 +88,7 @@ public sealed class WashingController
         _last.Clear();
         _seen.Clear();
         _stale.Clear();
+        _wasActive = false;
         SetCarScale(carScale);
     }
 
@@ -128,6 +131,10 @@ public sealed class WashingController
         foreach (int id in _last.Keys)
             if (!_seen.Contains(id)) _stale.Add(id);
         for (int i = 0; i < _stale.Count; i++) _last.Remove(_stale[i]);
+
+        bool hasPointers = _last.Count > 0;
+        if (_wasActive && !hasPointers && StrokeEnded != null) StrokeEnded();
+        _wasActive = hasPointers;
     }
 
     public float Progress(WashStage stage)

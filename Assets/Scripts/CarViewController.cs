@@ -7,6 +7,7 @@ public sealed class CarViewController
 {
     private readonly RectTransform _carRect;
     private readonly RectTransform _overlayRect;
+    private readonly Vector2 _viewSize;
     private Texture2D _carTexture;
     private Texture2D _overlayTexture;
     private Sprite _carSprite;
@@ -15,10 +16,11 @@ public sealed class CarViewController
     private float _wobble;
     private bool _driving;
 
-    public CarViewController(Image car, Image overlay)
+    public CarViewController(Image car, Image overlay, Vector2 viewSize)
     {
         _carRect = car.rectTransform;
         _overlayRect = overlay.rectTransform;
+        _viewSize = viewSize;
         _home = _carRect.anchoredPosition;
     }
 
@@ -38,12 +40,15 @@ public sealed class CarViewController
         _overlaySprite = Sprite.Create(_overlayTexture, new Rect(0, 0, WashSurface.W, WashSurface.H),
             new Vector2(0.5f, 0.5f), 100f);
 
+        // The car and its wash mask must cover EXACTLY the same rectangle as
+        // the input area. A smaller image made the finger and the painted
+        // droplet diverge near the edges of large buses and trucks.
         _carRect.anchorMin = new Vector2(0.5f, 0.5f);
         _carRect.anchorMax = new Vector2(0.5f, 0.5f);
-        _carRect.sizeDelta = new Vector2(780f, 520f);
+        _carRect.sizeDelta = _viewSize;
         _overlayRect.anchorMin = new Vector2(0.5f, 0.5f);
         _overlayRect.anchorMax = new Vector2(0.5f, 0.5f);
-        _overlayRect.sizeDelta = new Vector2(780f, 520f);
+        _overlayRect.sizeDelta = _viewSize;
 
         var carImage = _carRect.GetComponent<Image>();
         var overlayImage = _overlayRect.GetComponent<Image>();

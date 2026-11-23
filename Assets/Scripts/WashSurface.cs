@@ -31,6 +31,9 @@ public sealed class WashSurface
     private readonly float[] _dry = new float[N];
     private readonly float[] _dirt = new float[N];
     private readonly float[] _bubbles = new float[N];
+    private readonly float[] _runoff = new float[N];
+    private readonly float[] _droplets = new float[N];
+    private readonly float[] _soap = new float[N];
     private readonly float[] _shine = new float[N];
     private readonly float[] _shade = new float[N];
     private readonly float[] _silhouette = new float[N];
@@ -101,6 +104,13 @@ public sealed class WashSurface
                     : 1f;
                 _dirt[i] = Mathf.Clamp01((0.72f + 0.30f * n + 0.20f * h) * dirtAmount * dirtScale * upper * patch);
                 _bubbles[i] = 0.58f + 0.42f * Mathf.PerlinNoise(x * 0.085f + 7f, y * 0.085f + 13f);
+                // Elongated vertical noise gives water and foam believable
+                // gravity-driven streaks instead of a uniform dark tint.
+                _runoff[i] = Mathf.Clamp01(0.22f + 0.95f *
+                    Mathf.PerlinNoise(x * 0.085f + seed * 0.13f, y * 0.012f + seed * 0.07f));
+                _droplets[i] = Mathf.Clamp01((Hash(x, y, seed + 41) - 0.91f) * 11f) *
+                               (y < H * 0.72f ? 1f : 0.35f);
+                _soap[i] = Mathf.Clamp01((Mathf.PerlinNoise(x * 0.06f + 19f, y * 0.11f + 3f) - 0.36f) * 2.3f);
                 _shade[i] = h;
 
                 float sparkle = 0.12f + 0.30f * h;
@@ -180,7 +190,13 @@ public sealed class WashSurface
                 }
             }
         }
-        if (changed) MarkDirty(x0, y0, x1, y1);
+        if (changed)
+        {
+            // Rebuild a few rows below the brush as well: runoff and foam
+            // trails sample the rows above them, so those pixels must be
+            // refreshed even though the finger never touched them.
+            MarkDirty(x0, Mathf.Max(0, y0 - 20), x1, y1);
+        }
     }
 
     /// <summary>Finish the current stage so no tiny spot is left behind. Only
@@ -428,19 +444,38 @@ public sealed class WashSurface
                 float clean = _clean[i];
                 float scrub = _scrub[i];
                 float shade = _shade[i];
+                float bub = _bubbles[i];
+
+                // Water already applied higher on the body leaves a thinner,
+                // noisy trail below the brush. Sampling a few rows up is far
+                // cheaper than a fluid sim and reads as runoff on vertical panels.
+                float trail = 0f;
+                if (y >= 8) trail += _wet[(y - 8) * W + x] * 0.34f;
+                if (y >= 19) trail += _wet[(y - 19) * W + x] * 0.17f;
+                float wetLayer = Mathf.Clamp01(wet + trail * _runoff[i]) * (1f - clean);
 
                 float r = 0f, g = 0f, b = 0f, a = 0f;
-                // Layer order: wet shine -> dirt -> foam -> final sparkle.
-                Blend(ref r, ref g, ref b, ref a, 30f, 78f, 116f, wet * 0.42f * (1f - clean));
+                // Layer order: wet film -> runoff droplets -> dirt -> foam ->
+                // soap marks from the sponge -> final sparkle.
+                Blend(ref r, ref g, ref b, ref a, 30f, 78f, 116f, wetLayer * 0.46f);
+                Blend(ref r, ref g, ref b, ref a, 188f, 224f, 244f,
+                    wetLayer * _droplets[i] * 0.80f);
 
                 Blend(ref r, ref g, ref b, ref a,
                     _dirtColor.r + shade * 30f, _dirtColor.g + shade * 24f, _dirtColor.b + shade * 18f,
-                    _dirt[i] * (1f - 0.38f * wet) * (1f - clean) * (1f - 0.70f * scrub));
+                    _dirt[i] * (1f - 0.38f * wetLayer) * (1f - clean) * (1f - 0.70f * scrub));
 
-                float bub = _bubbles[i];
+                float foamTrail = 0f;
+                if (y >= 6) foamTrail += _foam[(y - 6) * W + x] * 0.22f;
+                float foamLayer = Mathf.Clamp01(foam + foamTrail * _runoff[i]) * bub * (1f - clean);
                 Blend(ref r, ref g, ref b, ref a,
-                    226f + 29f * bub, 236f + 19f * bub, 244f + 11f * bub,
-                    foam * bub * (1f - clean));
+                    226f + 29f * bub, 236f + 19f * bub, 244f + 11f * bub, foamLayer);
+                // Brighter bubble caps break up the flat white foam layer.
+                Blend(ref r, ref g, ref b, ref a, 255f, 255f, 255f,
+                    foamLayer * Mathf.Clamp01((bub - 0.72f) * 3.6f) * 0.55f);
+
+                float soap = scrub * foam * _soap[i] * (1f - clean);
+                Blend(ref r, ref g, ref b, ref a, 232f, 242f, 238f, soap * 0.48f);
 
                 float shine = Mathf.Clamp01(_shine[i] + _dry[i] * 0.18f);
                 Blend(ref r, ref g, ref b, ref a, 255f, 255f, 238f, clean * shine * 0.85f);

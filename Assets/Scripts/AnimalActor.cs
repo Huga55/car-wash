@@ -25,7 +25,15 @@ public sealed class AnimalActor
 
     public bool Visible { get { return _visible; } }
     public Vector2 Position { get { return _portrait.rectTransform.anchoredPosition; } }
+    public Vector2 Home { get { return _home; } }
     public AnimalKind Kind { get { return _kind; } }
+
+    public void SetSpeech(string text, bool visible)
+    {
+        if (_speech == null) return;
+        _speech.text = text;
+        _speech.gameObject.SetActive(visible);
+    }
 
     public void Show(int level, AnimalKind kind)
     {

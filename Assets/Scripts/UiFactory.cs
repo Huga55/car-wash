@@ -146,64 +146,136 @@ public static class UiFactory
         }
     }
 
-    /// <summary>Simple tool icons, baked once and shared by every level.</summary>
+    /// <summary>Detailed equipment renders, baked once and shared by every
+    /// level. The same sprite is used for the HUD badge and the cursor that
+    /// follows the child's finger, so the two always match.</summary>
     public static Sprite ToolSprite(WashingTool tool)
     {
         int index = (int)tool;
         if (_tools[index] != null) return _tools[index];
 
-        const int s = 64;
-        var pixels = new Color32[s * s];
-        Color32 hose = new Color32(64, 154, 236, 255);
-        Color32 dark = new Color32(48, 72, 104, 255);
-        Color32 foam = new Color32(255, 255, 255, 255);
-        Color32 sponge = new Color32(255, 206, 72, 255);
-        Color32 dryer = new Color32(246, 132, 156, 255);
+        const int s = 128;
+        var px = new Color32[s * s];
+        var dark = new Color32(42, 54, 70, 255);
+        var mid = new Color32(84, 102, 124, 255);
+        var metal = new Color32(190, 202, 214, 255);
+        var rubber = new Color32(30, 36, 44, 255);
+        var water = new Color32(152, 220, 246, 235);
+        var foam = new Color32(246, 250, 252, 255);
+        var amber = new Color32(226, 172, 72, 255);
 
         if (tool == WashingTool.Hose)
         {
-            Line(pixels, s, 10, 48, 30, 24, hose, 7f);
-            Line(pixels, s, 30, 24, 50, 44, hose, 7f);
-            Box(pixels, s, 44, 38, 15, 12, dark);
-            Disc(pixels, s, 56, 52, 4f, new Color32(126, 214, 255, 255));
-            Disc(pixels, s, 50, 58, 3f, new Color32(126, 214, 255, 255));
-            Disc(pixels, s, 60, 42, 2.5f, new Color32(126, 214, 255, 255));
+            // Flexible rubber hose with a lighter top edge.
+            Line(px, s, 8, 116, 26, 92, rubber, 13f);
+            Line(px, s, 26, 92, 52, 74, rubber, 13f);
+            Line(px, s, 8, 119, 26, 95, mid, 4f);
+            Line(px, s, 26, 95, 52, 77, mid, 4f);
+            // Hose-to-gun coupling.
+            Box(px, s, 46, 62, 16, 16, metal);
+            Box(px, s, 48, 64, 11, 4, dark);
+            // Spray gun body, grip and trigger.
+            GradientBox(px, s, 58, 60, 40, 28, mid, dark);
+            Polygon(px, s, new[] { new Vector2(65, 60), new Vector2(84, 60), new Vector2(78, 24), new Vector2(64, 24) }, dark);
+            Box(px, s, 72, 30, 8, 22, mid);
+            Box(px, s, 86, 46, 8, 16, rubber);
+            Box(px, s, 96, 62, 18, 14, metal);
+            Box(px, s, 112, 65, 8, 8, new Color32(216, 228, 238, 255));
+            Disc(px, s, 70, 80, 4f, water);
+            // Pressurised spray cone.
+            for (int i = 0; i < 14; i++)
+            {
+                float x = 120f + (i % 6) * 2f;
+                float y = 68f + Mathf.Sin(i * 1.7f) * (3f + i * 0.8f);
+                Disc(px, s, x, y, i % 3 == 0 ? 2.4f : 1.5f, water);
+            }
         }
         else if (tool == WashingTool.Foam)
         {
-            Box(pixels, s, 26, 12, 20, 22, new Color32(96, 196, 156, 255));
-            Box(pixels, s, 33, 6, 7, 8, dark);
-            Disc(pixels, s, 22, 43, 7f, foam);
-            Disc(pixels, s, 39, 48, 9f, foam);
-            Disc(pixels, s, 50, 39, 5f, foam);
-            Disc(pixels, s, 31, 32, 4f, foam);
-            Disc(pixels, s, 25, 46, 2f, new Color32(170, 222, 255, 255));
-            Disc(pixels, s, 42, 51, 2f, new Color32(170, 222, 255, 255));
+            // Detergent bottle with a visible fill level and label.
+            GradientBox(px, s, 20, 14, 42, 64, new Color32(112, 176, 206, 255), new Color32(52, 96, 130, 255));
+            GradientBox(px, s, 23, 20, 36, 38, foam, new Color32(214, 236, 244, 255));
+            Box(px, s, 25, 44, 32, 11, new Color32(64, 146, 158, 255));
+            Box(px, s, 35, 78, 13, 14, metal);
+            // Sprayer head and trigger.
+            GradientBox(px, s, 42, 88, 52, 24, mid, dark);
+            Box(px, s, 52, 74, 10, 16, rubber);
+            Box(px, s, 92, 92, 20, 12, metal);
+            Disc(px, s, 63, 100, 4f, water);
+            // Thick foam spray.
+            for (int i = 0; i < 18; i++)
+            {
+                float x = 108f + (i % 5) * 3f;
+                float y = 92f + Mathf.Sin(i * 1.3f) * (5f + i * 0.7f);
+                Disc(px, s, x, y, 2.6f + (i % 3) * 1.2f, foam);
+            }
         }
         else if (tool == WashingTool.Sponge)
         {
-            Box(pixels, s, 12, 18, 40, 28, sponge);
-            Box(pixels, s, 12, 18, 40, 5, new Color32(255, 228, 130, 255));
-            Disc(pixels, s, 21, 30, 4f, new Color32(222, 166, 48, 255));
-            Disc(pixels, s, 39, 26, 3f, new Color32(222, 166, 48, 255));
-            Disc(pixels, s, 45, 38, 4f, new Color32(222, 166, 48, 255));
-            Disc(pixels, s, 28, 40, 3f, new Color32(222, 166, 48, 255));
+            // Front, top and side faces give the sponge genuine volume.
+            Polygon(px, s, new[] { new Vector2(18, 30), new Vector2(96, 30), new Vector2(108, 46), new Vector2(30, 46) },
+                new Color32(198, 158, 52, 255));
+            GradientBox(px, s, 18, 44, 78, 34, new Color32(252, 214, 92, 255), new Color32(212, 166, 54, 255));
+            Polygon(px, s, new[] { new Vector2(18, 78), new Vector2(96, 78), new Vector2(108, 94), new Vector2(30, 94) },
+                new Color32(255, 234, 148, 255));
+            // Porous surface and a little soap on top.
+            for (int i = 0; i < 26; i++)
+            {
+                float x = 24f + (i * 37 % 68);
+                float y = 50f + (i * 19 % 26);
+                Disc(px, s, x, y, 1.8f + (i % 3) * 0.7f, new Color32(186, 142, 42, 210));
+            }
+            Disc(px, s, 54, 88, 7f, foam);
+            Disc(px, s, 76, 86, 5f, foam);
+            Disc(px, s, 38, 90, 4f, foam);
         }
         else
         {
-            Box(pixels, s, 16, 20, 26, 24, dryer);
-            Box(pixels, s, 40, 24, 11, 16, new Color32(236, 96, 124, 255));
-            Line(pixels, s, 52, 24, 61, 18, new Color32(255, 236, 150, 255), 3f);
-            Line(pixels, s, 52, 32, 62, 32, new Color32(255, 236, 150, 255), 3f);
-            Line(pixels, s, 52, 40, 61, 46, new Color32(255, 236, 150, 255), 3f);
-            Disc(pixels, s, 22, 45, 4f, new Color32(255, 236, 150, 255));
+            // Dryer body, handle, vent grille and tapered nozzle.
+            GradientBox(px, s, 18, 46, 62, 40, mid, dark);
+            Box(px, s, 28, 18, 22, 30, rubber);
+            Box(px, s, 32, 22, 14, 22, dark);
+            for (int i = 0; i < 4; i++) Box(px, s, 26 + i * 13, 74, 5, 8, metal);
+            Polygon(px, s, new[] { new Vector2(78, 52), new Vector2(112, 34), new Vector2(112, 94), new Vector2(78, 78) }, metal);
+            Box(px, s, 108, 40, 7, 48, new Color32(222, 232, 240, 255));
+            Disc(px, s, 40, 84, 5f, amber);
+            // Air flow streaks.
+            Line(px, s, 116, 60, 127, 52, water, 2.5f);
+            Line(px, s, 116, 68, 127, 68, water, 2.5f);
+            Line(px, s, 116, 76, 127, 84, water, 2.5f);
         }
 
         var texture = new Texture2D(s, s, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
-        texture.SetPixels32(pixels);
+        texture.SetPixels32(px);
         texture.Apply(false, false);
         _tools[index] = Sprite.Create(texture, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), 100f);
         return _tools[index];
+    }
+
+    private static void GradientBox(Color32[] px, int size, float x, float y, float w, float h,
+        Color32 top, Color32 bottom)
+    {
+        for (int py = Mathf.FloorToInt(y); py < Mathf.CeilToInt(y + h); py++)
+        {
+            float t = (py - y) / Mathf.Max(1f, h);
+            var row = Color.Lerp((Color)top, (Color)bottom, t);
+            for (int pxi = Mathf.FloorToInt(x); pxi < Mathf.CeilToInt(x + w); pxi++)
+                Dot(px, size, pxi, py, row);
+        }
+    }
+
+    private static void ShadedDisc(Color32[] px, int size, float cx, float cy, float radius, Color32 color)
+    {
+        Disc(px, size, cx, cy, radius, color);
+        Disc(px, size, cx - radius * 0.3f, cy + radius * 0.3f, radius * 0.35f,
+            new Color32(255, 255, 255, 120));
+    }
+
+    private static void Polygon(Color32[] px, int size, Vector2[] points, Color32 color)
+    {
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+                if (Inside(x + 0.5f, y + 0.5f, points)) Dot(px, size, x, y, color);
     }
 
     public static Sprite LockSprite

@@ -46,6 +46,7 @@ public static class Loc
     public const string Complete = "complete";
     public const string CarLabel = "car_label";
     public const string Washer = "washer";
+    public const string Skip = "skip";
 
     private static readonly Dictionary<GameLanguage, Dictionary<string, string>> Languages =
         new Dictionary<GameLanguage, Dictionary<string, string>>
@@ -87,7 +88,8 @@ public static class Loc
                     { Sparkle, "Так сияет!" },
                     { Complete, "ЧИСТАЯ МАШИНКА" },
                     { CarLabel, "МАШИНКА" },
-                    { Washer, "ЮНЫЙ МОЙЩИК" }
+                    { Washer, "ЮНЫЙ МОЙЩИК" },
+                    { Skip, "ПРОПУСТИТЬ →" }
                 }
             }
         };
@@ -124,6 +126,20 @@ public static class Loc
             case WashStage.Scrub: return T(Scrub);
             case WashStage.Dry: return T(Dry);
             default: return T(Sparkle);
+        }
+    }
+
+    /// <summary>Compact labels for the vertical stage list in the play HUD.</summary>
+    public static string StageShort(WashStage stage)
+    {
+        switch (stage)
+        {
+            case WashStage.Wet: return "ВОДА";
+            case WashStage.Foam: return "ПЕНА";
+            case WashStage.Scrub: return "ГУБКА";
+            case WashStage.Rinse: return "СМЫВ";
+            case WashStage.Dry: return "СУШКА";
+            default: return T(Tool);
         }
     }
 

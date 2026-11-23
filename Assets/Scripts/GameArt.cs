@@ -5,145 +5,111 @@ public static class GameArt
 {
     private const int Size = 384;
 
-    private static readonly Color32[] SkyTop =
-    {
-        new Color32(126, 202, 255, 255), new Color32(112, 180, 240, 255),
-        new Color32(118, 205, 248, 255), new Color32(255, 168, 148, 255),
-        new Color32(140, 214, 236, 255)
-    };
-    private static readonly Color32[] SkyBottom =
-    {
-        new Color32(226, 246, 255, 255), new Color32(216, 236, 250, 255),
-        new Color32(255, 242, 208, 255), new Color32(255, 226, 182, 255),
-        new Color32(236, 250, 236, 255)
-    };
-    private static readonly Color32[] HillA =
-    {
-        new Color32(126, 205, 126, 255), new Color32(156, 176, 196, 255),
-        new Color32(244, 220, 152, 255), new Color32(184, 142, 164, 255),
-        new Color32(146, 212, 150, 255)
-    };
-    private static readonly Color32[] HillB =
-    {
-        new Color32(86, 170, 104, 255), new Color32(112, 138, 164, 255),
-        new Color32(228, 198, 130, 255), new Color32(144, 108, 142, 255),
-        new Color32(96, 176, 112, 255)
-    };
-    private static readonly Color32[] Road =
-    {
-        new Color32(126, 132, 144, 255), new Color32(112, 118, 132, 255),
-        new Color32(204, 184, 146, 255), new Color32(130, 122, 134, 255),
-        new Color32(134, 140, 150, 255)
-    };
-
-    private static Sprite _cloud;
-    private static Sprite _sun;
-
-    /// <summary>Overlay sprites for the gentle menu animation.</summary>
-    public static Sprite CloudSprite
-    {
-        get
-        {
-            if (_cloud == null)
-            {
-                const int w = 128;
-                const int h = 64;
-                var pixels = new Color32[w * h];
-                Disc(pixels, w, h, 42, 36, 20f, new Color32(255, 255, 255, 255));
-                Disc(pixels, w, h, 66, 30, 25f, new Color32(255, 255, 255, 255));
-                Disc(pixels, w, h, 92, 38, 18f, new Color32(255, 255, 255, 255));
-                var texture = CarArt.MakeTexture(pixels, w, h, "Cloud");
-                _cloud = Sprite.Create(texture, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100f);
-            }
-            return _cloud;
-        }
-    }
-
-    public static Sprite SunSprite
-    {
-        get
-        {
-            if (_sun == null)
-            {
-                const int s = 128;
-                var pixels = new Color32[s * s];
-                Disc(pixels, s, s, 64, 64, 36f, new Color32(255, 232, 118, 255));
-                for (int i = 0; i < 12; i++)
-                {
-                    float angle = i * Mathf.PI * 2f / 12f;
-                    float cx = 64f + Mathf.Cos(angle) * 49f;
-                    float cy = 64f + Mathf.Sin(angle) * 49f;
-                    Disc(pixels, s, s, cx, cy, 6f, new Color32(255, 232, 118, 255));
-                }
-                var texture = CarArt.MakeTexture(pixels, s, s, "Sun");
-                _sun = Sprite.Create(texture, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), 100f);
-            }
-            return _sun;
-        }
-    }
-
-    private static void Disc(Color32[] pixels, int w, int h, float cx, float cy, float radius, Color32 color)
-    {
-        for (int y = Mathf.FloorToInt(cy - radius); y <= Mathf.CeilToInt(cy + radius); y++)
-        {
-            for (int x = Mathf.FloorToInt(cx - radius); x <= Mathf.CeilToInt(cx + radius); x++)
-            {
-                if (x < 0 || y < 0 || x >= w || y >= h) continue;
-                float dx = x + 0.5f - cx;
-                float dy = y + 0.5f - cy;
-                if (dx * dx + dy * dy <= radius * radius) pixels[y * w + x] = color;
-            }
-        }
-    }
-
     public static Texture2D Background(int theme)
     {
-        int t = Mathf.Abs(theme) % SkyTop.Length;
-        Color top = SkyTop[t];
-        Color bottom = SkyBottom[t];
-        Color hillA = HillA[t];
-        Color hillB = HillB[t];
-        Color road = Road[t];
-        Color sun = new Color32(255, 244, 176, 255);
-        Color cloud = new Color32(255, 255, 255, 255);
-
+        int t = Mathf.Abs(theme) % 5;
         var pixels = new Color32[Size * Size];
+        var steel = new Color32((byte)(74 + t * 4), (byte)(92 + t * 3), (byte)(110 + t * 3), 255);
+        var steelDark = new Color32(46, 60, 76, 255);
+        var wallTop = new Color32((byte)(150 + t * 5), (byte)(172 + t * 4), (byte)(188 + t * 2), 255);
+        var wallBottom = new Color32(108, 128, 146, 255);
+        var floorTop = new Color32(106, 120, 134, 255);
+        var floorBottom = new Color32(66, 78, 92, 255);
+        var grout = new Color32(88, 104, 120, 255);
+        var light = new Color32(244, 252, 255, 255);
+
         for (int y = 0; y < Size; y++)
         {
             float v = y / (float)Size;
             for (int x = 0; x < Size; x++)
             {
                 float u = x / (float)Size;
-                Color c = Color.Lerp(bottom, top, v);
-
-                float sunDist = Mathf.Sqrt((u - 0.79f) * (u - 0.79f) + (v - 0.81f) * (v - 0.81f));
-                c = Color.Lerp(c, sun, Mathf.Clamp01((0.22f - sunDist) * 2.2f) * 0.65f);
-                if (sunDist < 0.058f) c = sun;
-
-                c = Color.Lerp(c, cloud, Cloud(u, v, 0.14f, 0.72f, 0.075f));
-                c = Color.Lerp(c, cloud, Cloud(u, v, 0.43f, 0.84f, 0.055f));
-                c = Color.Lerp(c, cloud, Cloud(u, v, 0.62f, 0.69f, 0.065f));
-
-                float h1 = 0.19f + 0.050f * Mathf.Sin(u * 7f + t);
-                float h2 = 0.12f + 0.035f * Mathf.Sin(u * 10f + 2f + t);
-                if (v < h1) c = Color.Lerp(c, hillA, 0.96f);
-                if (v < h2) c = Color.Lerp(c, hillB, 0.98f);
-                if (v < 0.065f)
+                Color c;
+                if (v > 0.88f)
                 {
-                    c = road;
-                    if (v > 0.030f && v < 0.038f && (x / 46) % 2 == 0) c = Color.Lerp(road, Color.white, 0.7f);
+                    // Canopy underside with beams.
+                    c = steelDark;
+                    if ((x / 96) % 2 == 0) c = Color.Lerp(c, steel, 0.35f);
+                    if (v > 0.965f) c = Color.Lerp(c, light, 0.16f);
                 }
+                else if (v > 0.42f)
+                {
+                    // Tiled back wall with a soft top-down light falloff.
+                    float k = Mathf.Clamp01((v - 0.42f) / 0.46f);
+                    c = Color.Lerp(wallBottom, wallTop, k);
+                    if (x % 48 < 2 || ((y + 12) % 40) < 2) c = Color.Lerp(c, grout, 0.55f);
+                    // Light strip reflected across the upper wall.
+                    if (v > 0.80f && v < 0.845f && u > 0.14f && u < 0.86f)
+                        c = Color.Lerp(c, light, 0.55f);
+                }
+                else
+                {
+                    // Sloped wet floor converging toward the back wall.
+                    float k = Mathf.Clamp01(v / 0.42f);
+                    c = Color.Lerp(floorBottom, floorTop, k);
+                    float perspective = 1f / Mathf.Max(0.25f, v + 0.22f);
+                    if (((x - Size * 0.5f) * perspective + Size * 0.5f) % 64f < 2.5f)
+                        c = Color.Lerp(c, grout, 0.45f);
+                    if (y % 26 < 2) c = Color.Lerp(c, grout, 0.35f);
+                }
+
+                // Side pillars frame the wash bay.
+                if (u < 0.045f || u > 0.955f) c = steelDark;
                 pixels[y * Size + x] = c;
             }
         }
-        return CarArt.MakeTexture(pixels, Size, Size, "Background" + t);
+
+        // Ceiling strip lights.
+        for (int lamp = 0; lamp < 3; lamp++)
+            FillRect(pixels, 52 + lamp * 130, 356, 92, 9, light);
+
+        // Wall equipment: foam unit, hanging hose reels and a tool rack.
+        FillRect(pixels, 18, 196, 62, 118, steel);
+        FillRect(pixels, 24, 250, 50, 52, new Color32(206, 226, 236, 255));
+        FillRect(pixels, 30, 300, 38, 12, steelDark);
+        FillRect(pixels, 304, 206, 58, 92, steel);
+        for (int i = 0; i < 3; i++) Disc(pixels, 318 + i * 18, 274, 6f, steelDark);
+        FillRect(pixels, 106, 292, 150, 9, steelDark);
+        for (int i = 0; i < 4; i++) FillRect(pixels, 114 + i * 36, 270, 9, 24, new Color32(196, 210, 222, 255));
+
+        // Drain channel and wet reflections on the floor.
+        FillRect(pixels, 0, 16, Size, 8, new Color32(38, 50, 62, 255));
+        for (int i = 0; i < 11; i++) FillRect(pixels, 12 + i * 35, 16, 18, 4, new Color32(96, 112, 128, 255));
+        for (int i = 0; i < 5; i++)
+            Ellipse(pixels, 46 + i * 76, 44 + (i % 2) * 20, 30f + i * 3, 8f,
+                new Color32(150, 190, 210, 90));
+        for (int i = 0; i < 3; i++)
+            FillRect(pixels, 70 + i * 120, 54, 46, 3, new Color32(214, 238, 250, 110));
+
+        return CarArt.MakeTexture(pixels, Size, Size, "WashBay" + t);
     }
 
-    private static float Cloud(float u, float v, float cx, float cy, float r)
+    private static void FillRect(Color32[] px, int x0, int y0, int w, int h, Color32 color)
     {
-        float a = Mathf.Sqrt((u - cx) * (u - cx) + (v - cy) * (v - cy));
-        float b = Mathf.Sqrt((u - cx - r * 0.85f) * (u - cx - r * 0.85f) + (v - cy - r * 0.18f) * (v - cy - r * 0.18f));
-        float d = Mathf.Min(a, b);
-        return Mathf.Clamp01((r - d) * 22f);
+        for (int y = y0; y < y0 + h; y++)
+            for (int x = x0; x < x0 + w; x++)
+                if (x >= 0 && y >= 0 && x < Size && y < Size) px[y * Size + x] = color;
+    }
+
+    private static void Disc(Color32[] px, float cx, float cy, float r, Color32 color)
+    {
+        for (int y = Mathf.FloorToInt(cy - r); y <= Mathf.CeilToInt(cy + r); y++)
+            for (int x = Mathf.FloorToInt(cx - r); x <= Mathf.CeilToInt(cx + r); x++)
+            {
+                if (x < 0 || y < 0 || x >= Size || y >= Size) continue;
+                float dx = x + 0.5f - cx, dy = y + 0.5f - cy;
+                if (dx * dx + dy * dy <= r * r) px[y * Size + x] = color;
+            }
+    }
+
+    private static void Ellipse(Color32[] px, float cx, float cy, float rx, float ry, Color32 color)
+    {
+        for (int y = Mathf.FloorToInt(cy - ry); y <= Mathf.CeilToInt(cy + ry); y++)
+            for (int x = Mathf.FloorToInt(cx - rx); x <= Mathf.CeilToInt(cx + rx); x++)
+            {
+                if (x < 0 || y < 0 || x >= Size || y >= Size) continue;
+                float dx = (x + 0.5f - cx) / rx, dy = (y + 0.5f - cy) / ry;
+                if (dx * dx + dy * dy <= 1f) px[y * Size + x] = color;
+            }
     }
 }

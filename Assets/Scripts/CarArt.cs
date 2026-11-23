@@ -21,6 +21,7 @@ public static class CarArt
     public static Color32[] Render(CarKind kind, Color body, Color accent, float scale, int width, int height)
     {
         var p = new Painter(width, height, scale, body, accent);
+        p.GroundShadow();
         switch (kind)
         {
             case CarKind.Sedan: p.SedanShape(); break;
@@ -44,6 +45,11 @@ public static class CarArt
             case CarKind.MonsterTruck: p.MonsterTruck(); break;
             case CarKind.Van: p.VanShape(); break;
         }
+        // Cheap baked "studio lighting": vertical falloff, a soft highlight
+        // band, edge rim light and glass reflections. All cars receive it, so
+        // the different body shapes read as painted metal rather than flat
+        // stickers without any runtime shaders or extra textures.
+        p.FinishShading();
         return p.Pixels;
     }
 
@@ -203,11 +209,104 @@ public static class CarArt
 
         private static Vector2 Pt(float x, float y) { return new Vector2(x, y); }
 
+        /// <summary>Soft contact shadow baked under every vehicle.</summary>
+        public void GroundShadow()
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                float a = 0.10f - i * 0.02f;
+                RoundRect(0.5f, 0.155f + i * 0.004f, 0.90f - i * 0.06f,
+                    0.075f - i * 0.008f, 0.038f, new Color32(16, 26, 38, (byte)(a * 255f)));
+            }
+        }
+
+        /// <summary>Rubber, sidewall, rim, spokes, hub and tread in one wheel.</summary>
         private void Wheel(float x, float y, float r)
         {
+            Circle(x, y, r * 1.04f, new Color32(18, 20, 27, 190));
             Circle(x, y, r, Tire);
-            Circle(x, y, r * 0.56f, Hub);
+            Circle(x, y, r * 0.88f, new Color32(62, 65, 76, 255));
+            Circle(x, y, r * 0.72f, new Color32(28, 30, 38, 255));
+            Circle(x, y, r * 0.62f, Metal);
+            Circle(x, y, r * 0.55f, Hub);
+            for (int i = 0; i < 8; i++)
+            {
+                float a = i * Mathf.PI / 4f;
+                float sx = x + Mathf.Cos(a) * r * 0.44f;
+                float sy = y + Mathf.Sin(a) * r * 0.44f;
+                Circle(sx, sy, r * 0.10f, new Color32(126, 140, 156, 255));
+            }
+            for (int i = 0; i < 14; i++)
+            {
+                float a = i * Mathf.PI * 2f / 14f;
+                Circle(x + Mathf.Cos(a) * r * 0.94f, y + Mathf.Sin(a) * r * 0.94f,
+                    r * 0.055f, new Color32(24, 26, 32, 220));
+            }
             Circle(x, y, r * 0.22f, Dark);
+            Circle(x - r * 0.08f, y + r * 0.08f, r * 0.055f, White);
+        }
+
+        /// <summary>Bake a restrained studio-light look into the finished sprite.</summary>
+        public void FinishShading()
+        {
+            for (int y = 0; y < H; y++)
+            {
+                for (int x = 0; x < W; x++)
+                {
+                    int i = y * W + x;
+                    Color32 c = Pixels[i];
+                    if (c.a <= 2) continue;
+
+                    float u = (x + 0.5f) / W;
+                    float v = (y + 0.5f) / H;
+
+                    // Top-lit gradient, darker towards the wheels.
+                    float light = 0.80f + 0.30f * Mathf.Clamp01(v);
+                    // Broad softbox reflection sweeping across the body.
+                    float bv = (v - 0.58f) / 0.13f;
+                    float bu = (u - 0.36f) / 0.26f;
+                    float band = Mathf.Exp(-bv * bv) * Mathf.Exp(-bu * bu);
+                    // Fine metallic flake, barely visible but breaks flat fills.
+                    float flake = Hash(x, y, 7) * 10f - 5f;
+
+                    bool glass = Mathf.Abs(c.r - Glass.r) < 16f && Mathf.Abs(c.g - Glass.g) < 16f &&
+                                 Mathf.Abs(c.b - Glass.b) < 16f;
+                    if (glass)
+                    {
+                        float reflection = Mathf.Clamp01((0.72f - u + v * 0.25f) * 2.4f) * 26f;
+                        light = 0.70f + 0.18f * v;
+                        c.r = (byte)Mathf.Clamp(c.r * light + reflection, 0f, 255f);
+                        c.g = (byte)Mathf.Clamp(c.g * light + reflection, 0f, 255f);
+                        c.b = (byte)Mathf.Clamp(c.b * light + reflection + 6f, 0f, 255f);
+                    }
+                    else
+                    {
+                        float add = band * 30f + flake;
+                        c.r = (byte)Mathf.Clamp(c.r * light + add, 0f, 255f);
+                        c.g = (byte)Mathf.Clamp(c.g * light + add, 0f, 255f);
+                        c.b = (byte)Mathf.Clamp(c.b * light + add + band * 8f, 0f, 255f);
+                    }
+
+                    // Rim light on the upper silhouette edge.
+                    if (y + 1 < H && Pixels[(y + 1) * W + x].a < c.a * 0.45f)
+                    {
+                        c.r = (byte)Mathf.Min(255f, c.r + 24f);
+                        c.g = (byte)Mathf.Min(255f, c.g + 24f);
+                        c.b = (byte)Mathf.Min(255f, c.b + 24f);
+                    }
+                    Pixels[i] = c;
+                }
+            }
+        }
+
+        private static float Hash(int x, int y, int seed)
+        {
+            unchecked
+            {
+                int n = x * 374761393 + y * 668265263 + seed * 1442695041;
+                n = (n ^ (n >> 13)) * 1274126177;
+                return ((n ^ (n >> 16)) & 0xffff) / 65535f;
+            }
         }
 
         private void Wheels(float x1, float x2, float y, float r)
@@ -229,6 +328,37 @@ public static class CarArt
             Wheel(x2, y, r);
             Wheel(x3, y, r);
             Wheel(x4, y, r);
+        }
+
+        private void WheelArch(float x, float y, float r)
+        {
+            for (int i = 0; i < 9; i++)
+            {
+                float a = Mathf.PI * (0.12f + i * 0.095f);
+                Circle(x + Mathf.Cos(a) * r * 1.12f, y + Mathf.Sin(a) * r * 1.12f,
+                    r * 0.10f, new Color32(30, 36, 46, 150));
+            }
+        }
+
+        private void DoorHandle(float x, float y)
+        {
+            RoundRect(x, y, 0.045f, 0.012f, 0.005f, new Color32(226, 234, 242, 230));
+            RoundRect(x, y - 0.006f, 0.038f, 0.006f, 0.002f, new Color32(48, 56, 68, 190));
+        }
+
+        private void Mirror(float x, float y)
+        {
+            Rect(x - 0.018f, y, 0.03f, 0.01f, Dark);
+            RoundRect(x + 0.012f, y, 0.045f, 0.032f, 0.012f, _body);
+            RoundRect(x + 0.014f, y, 0.030f, 0.020f, 0.008f, Glass);
+        }
+
+        private void Headlight(float x, float y, float r)
+        {
+            Circle(x, y, r * 1.7f, new Color32(255, 244, 180, 45));
+            Circle(x, y, r * 1.25f, new Color32(255, 246, 196, 95));
+            Circle(x, y, r, Light);
+            Circle(x - r * 0.25f, y + r * 0.2f, r * 0.32f, White);
         }
 
         private void LightBar(float x, float y)
@@ -253,15 +383,20 @@ public static class CarArt
         public void SedanShape()
         {
             Wheels(0.28f, 0.72f, 0.27f, 0.095f);
+            WheelArch(0.28f, 0.27f, 0.095f);
+            WheelArch(0.72f, 0.27f, 0.095f);
             RoundRect(0.5f, 0.47f, 0.78f, 0.32f, 0.10f, _body);
             RoundRect(0.5f, 0.37f, 0.73f, 0.11f, 0.04f, _accent);
             Poly(new[] { Pt(0.29f, 0.60f), Pt(0.40f, 0.77f), Pt(0.63f, 0.77f), Pt(0.75f, 0.60f) }, _body);
             Poly(new[] { Pt(0.35f, 0.62f), Pt(0.42f, 0.74f), Pt(0.50f, 0.74f), Pt(0.50f, 0.62f) }, Glass);
             Poly(new[] { Pt(0.52f, 0.62f), Pt(0.52f, 0.74f), Pt(0.61f, 0.74f), Pt(0.68f, 0.62f) }, Glass);
-            Circle(0.88f, 0.49f, 0.035f, Light);
+            Headlight(0.88f, 0.49f, 0.030f);
             Circle(0.12f, 0.49f, 0.030f, Red);
             Rect(0.50f, 0.47f, 0.007f, 0.20f, Dark);
-            RoundRect(0.77f, 0.63f, 0.06f, 0.035f, 0.012f, _body);
+            DoorHandle(0.44f, 0.52f);
+            DoorHandle(0.61f, 0.52f);
+            Mirror(0.78f, 0.63f);
+            Mirror(0.22f, 0.63f);
         }
 
         public void Beetle()
@@ -332,12 +467,16 @@ public static class CarArt
         public void VanShape()
         {
             Wheels(0.28f, 0.74f, 0.26f, 0.085f);
+            WheelArch(0.28f, 0.26f, 0.085f);
+            WheelArch(0.74f, 0.26f, 0.085f);
             RoundRect(0.5f, 0.50f, 0.82f, 0.42f, 0.10f, _body);
             RoundRect(0.5f, 0.38f, 0.80f, 0.10f, 0.03f, _accent);
             Poly(new[] { Pt(0.68f, 0.65f), Pt(0.82f, 0.65f), Pt(0.82f, 0.54f), Pt(0.68f, 0.54f) }, Glass);
             RoundRect(0.40f, 0.63f, 0.28f, 0.13f, 0.03f, Glass);
-            Circle(0.89f, 0.46f, 0.030f, Light);
+            Headlight(0.89f, 0.46f, 0.026f);
             Rect(0.52f, 0.50f, 0.007f, 0.22f, Dark);
+            DoorHandle(0.60f, 0.52f);
+            Mirror(0.80f, 0.60f);
         }
 
         public void Bus()
@@ -348,8 +487,10 @@ public static class CarArt
             for (int i = 0; i < 6; i++)
                 RoundRect(0.17f + i * 0.132f, 0.63f, 0.10f, 0.13f, 0.02f, Glass);
             Rect(0.11f, 0.48f, 0.008f, 0.30f, Dark);
-            Circle(0.93f, 0.45f, 0.030f, Light);
+            Headlight(0.93f, 0.45f, 0.026f);
             Circle(0.07f, 0.45f, 0.026f, Red);
+            Mirror(0.89f, 0.62f);
+            DoorHandle(0.14f, 0.50f);
         }
 
         public void FireTruck()

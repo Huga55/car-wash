@@ -1,23 +1,34 @@
 #if UNITY_EDITOR
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace LittleCarWashBuild
 {
     /// <summary>
-    /// CI verification entry point. It runs the pure visual checks (every car,
-    /// stage order, zonal wash progress), then starts Play Mode and captures the
-    /// five main screens at four aspect ratios. Screenshots and the pass/fail
-    /// report are written to -customBuildPath so the workflow can upload them.
+    /// CI verification entry point. It checks pure visual/gameplay rules, then
+    /// starts Play Mode and captures the eleven required wash/reward moments
+    /// plus the five core screens at four aspect ratios. Screenshots and a
+    /// pass/fail report are written to -customBuildPath so the workflow can
+    /// upload them. Nothing here is compiled into a player build.
     /// </summary>
     public static class VisualVerification
     {
         private const string ScenePath = "Assets/Scenes/Game.unity";
+        private const int VerificationLevel = 5; // has the sponge stage
+
+        private static readonly string[] Moments =
+        {
+            "01_Play", "02_Wetting", "03_WaterStream", "04_Foam", "05_Sponge",
+            "06_Rinse", "07_CleanShiny", "08_AnimalAppears", "09_AnimalJoy",
+            "10_EnteringCar", "11_FinalScreen"
+        };
 
         private static readonly string[] Screens =
         {
@@ -39,10 +50,17 @@ namespace LittleCarWashBuild
         private static int _frame;
         private static int _resolutionIndex;
         private static int _screenIndex;
+        private static int _momentIndex;
         private static int _waitFrames;
+        private static float _waitUntil;
         private static string _lastCapture;
         private static bool _playing;
         private static bool _finished;
+        private static bool _rewardStarted;
+        private static float _rewardStart;
+        private static bool _rewardDurationChecked;
+        private static int _resolutionSettle;
+        private static string _pendingScreen;
 
         public static void Run()
         {
@@ -65,7 +83,7 @@ namespace LittleCarWashBuild
 
             EditorApplication.playModeStateChanged += OnPlayModeChanged;
             EditorApplication.update += Tick;
-            Debug.Log("[verify] entering Play Mode for screen capture");
+            Debug.Log("[verify] entering Play Mode for screenshots");
             EditorApplication.EnterPlaymode();
         }
 
@@ -136,6 +154,33 @@ namespace LittleCarWashBuild
                     return false;
                 }
                 _report.Add("PASS all six zones reach " + WashSurface.ZoneFinish.ToString("F2"));
+
+                FieldInfo duration = typeof(GameController).GetField("RewardSceneSeconds",
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                float seconds = duration != null && duration.IsLiteral
+                    ? Convert.ToSingle(duration.GetRawConstantValue()) : 0f;
+                if (seconds < 7f)
+                {
+                    _report.Add("FAIL reward scene only " + seconds + "s");
+                    return false;
+                }
+                _report.Add("PASS reward scene budget " + seconds.ToString("F1") + "s (no auto-skip)");
+
+                Vector2 reference = new Vector2(1200f, 800f);
+                foreach (int[] res in Resolutions)
+                {
+                    UiFit fit = UiLayout.Compute(reference, res[0], res[1], new Rect(0f, 0f, res[0], res[1]));
+                    float effective = UiLayout.CanvasScaleFactor(reference, res[0], res[1]) * fit.Scale;
+                    float usedW = reference.x * effective;
+                    float usedH = reference.y * effective;
+                    if (usedW > res[0] + 1f || usedH > res[1] + 1f || fit.Scale <= 0f)
+                    {
+                        _report.Add("FAIL UI does not fit " + res[0] + "x" + res[1] +
+                                    " (used " + usedW.ToString("F0") + "x" + usedH.ToString("F0") + ")");
+                        return false;
+                    }
+                }
+                _report.Add("PASS UI layout fits all four target resolutions");
                 return true;
             }
             catch (Exception e)
@@ -154,7 +199,7 @@ namespace LittleCarWashBuild
         {
             if (_finished) return;
             _frame++;
-            if (_frame > 60 * 60)
+            if (_frame > 60 * 120)
             {
                 Finish(false, "Play Mode timeout");
                 return;
@@ -165,6 +210,26 @@ namespace LittleCarWashBuild
             if (_controller == null)
             {
                 Finish(false, "GameController not found");
+                return;
+            }
+
+            if (_waitUntil > 0f && Time.realtimeSinceStartup < _waitUntil) return;
+            _waitUntil = 0f;
+
+            // Screen.SetResolution is applied over several frames in the Editor.
+            // Waiting before invoking the screen avoids mis-labelled captures.
+            if (_resolutionSettle > 0)
+            {
+                _resolutionSettle--;
+                if (_resolutionSettle == 0 && !string.IsNullOrEmpty(_pendingScreen))
+                {
+                    Invoke(_pendingScreen);
+                    int[] settled = Resolutions[_resolutionIndex];
+                    Capture(string.Format("UI_{0}x{1}_{2}.png",
+                        settled[0], settled[1], _pendingScreen));
+                    _pendingScreen = null;
+                    _waitFrames = 18;
+                }
                 return;
             }
 
@@ -184,28 +249,247 @@ namespace LittleCarWashBuild
                 return;
             }
 
+            if (_momentIndex < Moments.Length)
+            {
+                RunMoment(Moments[_momentIndex]);
+                return;
+            }
+
+            if (!_rewardDurationChecked)
+            {
+                Finish(false, "reward duration was never measured");
+                return;
+            }
+
             if (_screenIndex >= Screens.Length)
             {
                 _screenIndex = 0;
                 _resolutionIndex++;
                 if (_resolutionIndex >= Resolutions.Length)
                 {
-                    Finish(true, "all screens captured");
+                    CheckDebugMarkers();
+                    Finish(true, "all wash moments and UI screens captured");
                     return;
                 }
             }
 
             int[] res = Resolutions[_resolutionIndex];
             Screen.SetResolution(res[0], res[1], false);
-            Invoke(Screens[_screenIndex]);
-
-            string name = string.Format("{0}x{1}_{2}.png", res[0], res[1], Screens[_screenIndex]);
-            string path = Path.Combine(_output, name);
-            ScreenCapture.CaptureScreenshot(path, 1);
-            _report.Add("CAPTURE " + name + " (actual " + Screen.width + "x" + Screen.height + ")");
-            _lastCapture = path;
+            _pendingScreen = Screens[_screenIndex];
             _screenIndex++;
+            _resolutionSettle = 12;
+        }
+
+        private static void RunMoment(string moment)
+        {
+            switch (moment)
+            {
+                case "01_Play":
+                    PlayerPrefs.SetInt(GameData.UnlockKey, VerificationLevel);
+                    PlayerPrefs.Save();
+                    Call("StartLevel", VerificationLevel);
+                    break;
+
+                case "02_Wetting":
+                    OnStrokeEnded();
+                    SetStage(WashStage.Wet);
+                    PaintCoverage(WashStage.Wet, 0.32f);
+                    break;
+
+                case "03_WaterStream":
+                    OnStrokeEnded();
+                    OnStroke(WashStage.Wet, new Vector2(0.52f, 0.58f));
+                    var stream = (Image)GetField("_stream");
+                    if (stream == null || !stream.gameObject.activeSelf ||
+                        Mathf.Abs(stream.rectTransform.localRotation.eulerAngles.z) < 1f)
+                    {
+                        Finish(false, "directional water stream is missing");
+                        return;
+                    }
+                    _report.Add("PASS directional water stream is active");
+                    break;
+
+                case "04_Foam":
+                    OnStrokeEnded();
+                    SetStage(WashStage.Foam);
+                    PaintCoverage(WashStage.Foam, 0.62f);
+                    break;
+
+                case "05_Sponge":
+                    OnStrokeEnded();
+                    SetStage(WashStage.Scrub);
+                    PaintCoverage(WashStage.Scrub, 0.38f);
+                    Vector2 spongeUv = new Vector2(0.48f, 0.54f);
+                    OnStroke(WashStage.Scrub, spongeUv);
+                    var cursor = (Image)GetField("_toolCursor");
+                    var wash = GetField("_washRect") as RectTransform;
+                    if (cursor == null || !cursor.gameObject.activeSelf || wash == null)
+                    {
+                        Finish(false, "sponge cursor is missing");
+                        return;
+                    }
+                    Vector2 contact = new Vector2((spongeUv.x - 0.5f) * wash.sizeDelta.x,
+                        (spongeUv.y - 0.5f) * wash.sizeDelta.y);
+                    float gap = Vector2.Distance(cursor.rectTransform.anchoredPosition, contact);
+                    if (gap > 50f)
+                    {
+                        Finish(false, "sponge floats " + gap.ToString("F0") + "px from the car");
+                        return;
+                    }
+                    _report.Add("PASS sponge contacts the car (" + gap.ToString("F0") + "px)");
+                    break;
+
+                case "06_Rinse":
+                    OnStrokeEnded();
+                    SetStage(WashStage.Rinse);
+                    PaintCoverage(WashStage.Rinse, 0.55f);
+                    break;
+
+                case "07_CleanShiny":
+                    OnStrokeEnded();
+                    SetStage(WashStage.Dry);
+                    var cleanSurface = (WashSurface)GetField("_surface");
+                    if (cleanSurface == null)
+                    {
+                        Finish(false, "wash surface missing before clean car capture");
+                        return;
+                    }
+                    cleanSurface.FinishAll();
+                    HideCarOverlay();
+                    break;
+
+                case "08_AnimalAppears":
+                    OnStrokeEnded();
+                    StartReward();
+                    // Sparkle (1 s) + entrance (1.5 s): the driver is fully in view.
+                    _waitUntil = _rewardStart + 2.05f;
+                    return;
+
+                case "09_AnimalJoy":
+                    // Entry ends at 2.5 s; capture in the middle of the 2 s jump.
+                    _waitUntil = _rewardStart + 3.35f;
+                    return;
+
+                case "10_EnteringCar":
+                    // 1 + 1.5 + 2 + 2 = 6.5 s, then the 2 s boarding phase.
+                    _waitUntil = _rewardStart + 7.4f;
+                    return;
+
+                case "11_FinalScreen":
+                    var card = (GameObject)GetField("_completeCard");
+                    if (card == null || !card.activeSelf)
+                    {
+                        _waitUntil = _rewardStart + GameController.RewardSceneSeconds + 2f;
+                        return;
+                    }
+                    float duration = Time.realtimeSinceStartup - _rewardStart;
+                    if (duration < 7f)
+                    {
+                        Finish(false, "reward scene auto-skipped after " + duration.ToString("F2") + "s");
+                        return;
+                    }
+                    _report.Add("PASS reward scene ran " + duration.ToString("F2") + "s");
+                    _rewardDurationChecked = true;
+                    break;
+            }
+
+            Capture(moment + ".png");
+            _momentIndex++;
             _waitFrames = 18;
+        }
+
+        private static void StartReward()
+        {
+            if (_rewardStarted) return;
+            MethodInfo info = typeof(GameController).GetMethod("RewardSequence",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (info == null)
+            {
+                Finish(false, "RewardSequence not found");
+                return;
+            }
+            var sequence = info.Invoke(_controller, null) as IEnumerator;
+            if (sequence == null)
+            {
+                Finish(false, "RewardSequence returned no coroutine");
+                return;
+            }
+            _controller.StartCoroutine(sequence);
+            _rewardStarted = true;
+            _rewardStart = Time.realtimeSinceStartup;
+        }
+
+        private static void SetStage(WashStage stage)
+        {
+            var stages = GetField("_stages") as WashStage[];
+            if (stages != null)
+            {
+                for (int i = 0; i < stages.Length; i++)
+                {
+                    if (stages[i] == stage)
+                    {
+                        SetField("_stageIndex", i);
+                        break;
+                    }
+                }
+            }
+            SetField("_stage", stage);
+            Call("UpdateStageUi");
+        }
+
+        private static void HideCarOverlay()
+        {
+            object car = GetField("_car");
+            if (car == null) return;
+            MethodInfo info = car.GetType().GetMethod("HideOverlay",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (info != null) info.Invoke(car, null);
+        }
+
+        private static void PaintCoverage(WashStage stage, float fraction)
+        {
+            var surface = (WashSurface)GetField("_surface");
+            if (surface == null)
+            {
+                Finish(false, "wash surface missing");
+                return;
+            }
+            float radius = WashingTools.Radius(stage, 1f);
+            int columns = Mathf.Max(1, Mathf.CeilToInt(1f / (radius * 0.85f)));
+            int rows = Mathf.Max(1, Mathf.CeilToInt(1f / (radius * 1.25f)));
+            int limit = Mathf.Max(1, Mathf.RoundToInt(columns * fraction));
+            for (int y = 0; y <= rows; y++)
+                for (int x = 0; x <= limit; x++)
+                    surface.Paint((x + 0.5f) / (columns + 1f), (y + 0.5f) / (rows + 1f), radius, stage);
+            surface.Upload();
+        }
+
+        private static void OnStroke(WashStage stage, Vector2 uv)
+        {
+            Call("OnStrokeStarted", stage);
+            Call("OnStrokeMoved", uv, stage);
+        }
+
+        private static void OnStrokeEnded()
+        {
+            Call("OnStrokeEnded");
+        }
+
+        private static void CheckDebugMarkers()
+        {
+            var flagged = new List<string>();
+            foreach (Transform t in _controller.GetComponentsInChildren<Transform>(true))
+            {
+                string lower = t.name.ToLowerInvariant();
+                if (lower.Contains("zone") || lower.Contains("marker") || lower.Contains("debug") ||
+                    lower.Contains("gizmo") || lower.Contains("testsquare") ||
+                    lower.Contains("cloud") || lower.Contains("sun"))
+                    flagged.Add(t.name);
+            }
+            if (flagged.Count > 0)
+                _report.Add("FAIL debug objects in play view: " + string.Join(", ", flagged.ToArray()));
+            else
+                _report.Add("PASS no zone/marker/debug objects in play view");
         }
 
         private static void Invoke(string screen)
@@ -214,7 +498,19 @@ namespace LittleCarWashBuild
             else if (screen == "Levels") Call("ShowLevels");
             else if (screen == "Play") Call("StartLevel", 0);
             else if (screen == "Pause") Call("ShowPause");
-            else if (screen == "Complete") Call("CompleteLevel");
+            else if (screen == "Complete")
+            {
+                Call("StartLevel", 0);
+                Call("CompleteLevel");
+            }
+        }
+
+        private static void Capture(string name)
+        {
+            string path = Path.Combine(_output, name);
+            ScreenCapture.CaptureScreenshot(path, 1);
+            _report.Add("CAPTURE " + name + " (actual " + Screen.width + "x" + Screen.height + ")");
+            _lastCapture = path;
         }
 
         private static void Call(string method, params object[] args)
@@ -223,6 +519,22 @@ namespace LittleCarWashBuild
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
             if (info == null) throw new MissingMethodException("GameController." + method);
             info.Invoke(_controller, args);
+        }
+
+        private static object GetField(string name)
+        {
+            FieldInfo info = typeof(GameController).GetField(name,
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (info == null) throw new MissingFieldException("GameController." + name);
+            return info.GetValue(_controller);
+        }
+
+        private static void SetField(string name, object value)
+        {
+            FieldInfo info = typeof(GameController).GetField(name,
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (info == null) throw new MissingFieldException("GameController." + name);
+            info.SetValue(_controller, value);
         }
 
         private static void Finish(bool ok, string reason)

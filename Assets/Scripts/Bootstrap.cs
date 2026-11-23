@@ -10,8 +10,10 @@ public sealed class Bootstrap : MonoBehaviour
 
     private void Awake()
     {
-        // Older/cheaper tablets stay smooth at 30 fps, faster devices get 60.
-        bool weak = SystemInfo.processorCount <= 4 || SystemInfo.systemMemorySize < 2048;
+        // Two graphics profiles: the wash mechanic and all core effects stay in
+        // both, only the number of transient droplets and menu decoration drops.
+        GraphicsProfile.Init();
+        bool weak = GraphicsProfile.Low;
         Application.targetFrameRate = weak ? weakDeviceFps : fastDeviceFps;
         QualitySettings.vSyncCount = 0;
         Screen.sleepTimeout = SleepTimeout.NeverSleep;
@@ -40,5 +42,16 @@ public sealed class Bootstrap : MonoBehaviour
 
         if (FindObjectOfType<GameController>() == null)
             new GameObject("GameController").AddComponent<GameController>();
+    }
+}
+
+/// <summary>Device-derived graphics profile used to scale cosmetic effects.</summary>
+public static class GraphicsProfile
+{
+    public static bool Low { get; private set; }
+
+    public static void Init()
+    {
+        Low = SystemInfo.processorCount <= 4 || SystemInfo.systemMemorySize < 2048;
     }
 }
