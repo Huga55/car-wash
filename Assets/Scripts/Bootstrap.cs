@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Audio;
 using UnityEngine.EventSystems;
 
 /// <summary>Entry point. Creates the camera, input system and game controller.</summary>
@@ -36,9 +37,12 @@ public sealed class Bootstrap : MonoBehaviour
             new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
 
         if (FindObjectOfType<AudioListener>() == null) gameObject.AddComponent<AudioListener>();
-        var audio = gameObject.AddComponent<AudioSource>();
-        audio.playOnAwake = false;
-        AudioManager.Init(audio);
+        // Five reusable sources (and, when the generated mixer asset is present,
+        // five matching mixer groups) are created by AudioManager. The mixer is
+        // optional at runtime: bus gains are also applied in code so a missing
+        // asset can never leave the game silent.
+        AudioMixer mixer = Resources.Load<AudioMixer>("Audio/AudioMixer");
+        AudioManager.Init(gameObject, mixer);
 
         // UpdateChecker lives on its own object: GameController stops all of
         // its own coroutines on every screen change, which must not cancel a

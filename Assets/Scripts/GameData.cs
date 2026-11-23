@@ -185,4 +185,10 @@ public static class GameData
     public static string CompletedKey(int level) { return "lwc_done_" + level; }
     public static string UnlockKey { get { return "lwc_unlocked"; } }
     public static string SoundKey { get { return "lwc_sound"; } }
+    public static string MuteKey { get { return "lwc_mute"; } }
+    public static string MusicKey { get { return "lwc_music"; } }
+    public static string SfxKey { get { return "lwc_sfx"; } }
+    public static string MasterVolumeKey { get { return "lwc_volume_master"; } }
+    public static string MusicVolumeKey { get { return "lwc_volume_music"; } }
+    public static string SfxVolumeKey { get { return "lwc_volume_sfx"; } }
 }

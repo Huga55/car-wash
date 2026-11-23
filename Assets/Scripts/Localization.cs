@@ -63,6 +63,18 @@ public static class Loc
     public const string UpdateInstallError = "update_install_error";
     public const string UpdatePlatformError = "update_platform_error";
     public const string UpdateOpenPage = "update_open_page";
+    public const string AudioSettings = "audio_settings";
+    public const string AudioSettingsShort = "audio_settings_short";
+    public const string MusicOn = "music_on";
+    public const string MusicOff = "music_off";
+    public const string SfxOn = "sfx_on";
+    public const string SfxOff = "sfx_off";
+    public const string MuteOn = "mute_on";
+    public const string MuteOff = "mute_off";
+    public const string MasterVolume = "master_volume";
+    public const string MusicVolume = "music_volume";
+    public const string SfxVolume = "sfx_volume";
+    public const string Close = "close";
 
     private static readonly Dictionary<GameLanguage, Dictionary<string, string>> Languages =
         new Dictionary<GameLanguage, Dictionary<string, string>>
@@ -121,7 +133,19 @@ public static class Loc
                     { UpdateCheckError, "Не удалось проверить обновление. Проверь интернет." },
                     { UpdateInstallError, "Не получилось обновиться. Открой страницу выпуска в браузере." },
                     { UpdatePlatformError, "Обновление для этой платформы пока недоступно." },
-                    { UpdateOpenPage, "ОТКРЫТЬ СТРАНИЦУ" }
+                    { UpdateOpenPage, "ОТКРЫТЬ СТРАНИЦУ" },
+                    { AudioSettings, "НАСТРОЙКИ ЗВУКА" },
+                    { AudioSettingsShort, "ЗВУК" },
+                    { MusicOn, "МУЗЫКА: ВКЛ." },
+                    { MusicOff, "МУЗЫКА: ВЫКЛ." },
+                    { SfxOn, "ЭФФЕКТЫ: ВКЛ." },
+                    { SfxOff, "ЭФФЕКТЫ: ВЫКЛ." },
+                    { MuteOn, "ВСЕ ЗВУКИ: ВКЛ." },
+                    { MuteOff, "ВСЕ ЗВУКИ: ВЫКЛ." },
+                    { MasterVolume, "ОБЩАЯ ГРОМКОСТЬ" },
+                    { MusicVolume, "ГРОМКОСТЬ МУЗЫКИ" },
+                    { SfxVolume, "ГРОМКОСТЬ ЭФФЕКТОВ" },
+                    { Close, "ЗАКРЫТЬ" }
                 }
             }
         };

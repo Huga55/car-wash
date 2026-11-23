@@ -26,6 +26,10 @@ public sealed class CarViewController
 
     public Sprite CleanSprite { get { return _carSprite; } }
 
+    /// <summary>The live, gently moving image rectangle. Input uses this so
+    /// the wash mask and the visible car stay aligned at the edges.</summary>
+    public RectTransform CarRect { get { return _carRect; } }
+
     public void Load(Color32[] pixels, LevelDef level, WashSurface surface)
     {
         Dispose();

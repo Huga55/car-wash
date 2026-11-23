@@ -12,6 +12,7 @@ public sealed class GameController : MonoBehaviour
     private enum ScreenId { Home, Levels, Play }
 
     [SerializeField] private Vector2 uiReferenceResolution = new Vector2(1200f, 800f);
+    [SerializeField] private float brushRadiusMultiplier = 1.25f;
     [SerializeField] private float stageTransitionSeconds = 0.9f;
     [SerializeField] private float rewardSparkleSeconds = 1.0f;
     [SerializeField] private float driveAwaySeconds = 1.5f;
@@ -46,6 +47,16 @@ public sealed class GameController : MonoBehaviour
 
     private Image _preview;
     private readonly List<Text> _soundLabels = new List<Text>();
+
+    // Audio settings are independent: muting one bus never changes the other.
+    private GameObject _audioPanel;
+    private Button _musicToggleButton;
+    private Button _sfxToggleButton;
+    private Button _muteToggleButton;
+    private Text _musicToggleLabel;
+    private Text _sfxToggleLabel;
+    private Text _muteToggleLabel;
+    private readonly Text[] _volumeLabels = new Text[3];
 
     // Auto update: a silent check on launch and an explicit Russian dialog.
     private UpdateChecker _updates;
@@ -142,6 +153,7 @@ public sealed class GameController : MonoBehaviour
     private void Update()
     {
         if (_screenWidth != Screen.width || _screenHeight != Screen.height) ApplySafeArea();
+        AudioManager.Tick(Time.unscaledDeltaTime);
 
         float time = Time.unscaledTime;
         AnimateMenu(time);
@@ -215,6 +227,8 @@ public sealed class GameController : MonoBehaviour
         BuildExitDialog();
         BuildCompleteCard();
         BuildUpdateDialog();
+        BuildAudioSettings();
+        AudioManager.SetMusicMode("menu");
     }
 
     private GameObject Panel(string name)
@@ -232,7 +246,7 @@ public sealed class GameController : MonoBehaviour
     private void BuildHome()
     {
         UiFactory.Label(_homePanel.transform, "Logo", "Little Car Wash", 78, Ink, TextAnchor.MiddleCenter,
-            new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(900f, 100f), new Vector2(0f, -68f));
+            new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(800f, 100f), new Vector2(0f, -68f));
         UiFactory.Label(_homePanel.transform, "Tagline", "Весёлая мойка для машинок", 30, Ink,
             TextAnchor.MiddleCenter, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
             new Vector2(800f, 50f), new Vector2(0f, -132f));
@@ -261,12 +275,13 @@ public sealed class GameController : MonoBehaviour
         updateRect.anchoredPosition = new Vector2(135f, -210f);
         _updateButtonLabel = _updateButton.GetComponentInChildren<Text>();
 
-        AddSoundButton(_homePanel.transform, new Vector2(1f, 1f), new Vector2(-135f, -62f),
-            new Vector2(190f, 66f));
+        AddSoundButton(_homePanel.transform, new Vector2(1f, 1f), new Vector2(-110f, -62f),
+            new Vector2(170f, 62f));
+        AddAudioSettingsButton(_homePanel.transform, new Vector2(1f, 1f), new Vector2(-110f, -136f));
         UiFactory.Button(_homePanel.transform, "ExitButton", Loc.T(Loc.Exit), Graphite, 30,
             new Vector2(190f, 66f), new Vector2(0f, -364f), ShowExitDialog);
 
-        UpdateSoundLabels();
+        UpdateAudioLabels();
     }
 
     private void BuildLevels()
@@ -277,6 +292,7 @@ public sealed class GameController : MonoBehaviour
         _progressLabel = UiFactory.Label(_levelsPanel.transform, "Progress", "", 28, Ink,
             TextAnchor.MiddleRight, new Vector2(1f, 1f), new Vector2(1f, 1f),
             new Vector2(360f, 54f), new Vector2(-190f, -66f));
+        AddAudioSettingsButton(_levelsPanel.transform, new Vector2(1f, 1f), new Vector2(-110f, -138f));
 
         var card = UiFactory.CenteredImage(_levelsPanel.transform, "Card", Pale,
             new Vector2(760f, 430f), new Vector2(0f, 10f), UiFactory.RoundSprite, true);
@@ -303,7 +319,7 @@ public sealed class GameController : MonoBehaviour
         _chooseLabel = _chooseButton.GetComponentInChildren<Text>();
         UiFactory.Button(_levelsPanel.transform, "Back", Loc.T(Loc.Back), Steel, 32,
             new Vector2(240f, 72f), new Vector2(0f, -344f), ShowHome);
-        UpdateSoundLabels();
+        UpdateAudioLabels();
     }
 
     private void BuildPlay()
@@ -429,7 +445,7 @@ public sealed class GameController : MonoBehaviour
         _washing.StrokeMoved = OnStrokeMoved;
         _washing.StrokeEnded = OnStrokeEnded;
         _animal = new AnimalActor(animalPortrait, animalSpeech, new Vector2(330f, -70f));
-        UpdateSoundLabels();
+        UpdateAudioLabels();
     }
 
     private void BuildPause()
@@ -437,16 +453,17 @@ public sealed class GameController : MonoBehaviour
         _pausePanel = Panel("PauseDialog");
         var dim = UiFactory.StretchImage(_pausePanel.transform, "Dim", new Color(0f, 0f, 0f, 0.42f));
         dim.raycastTarget = true;
-        UiFactory.CenteredImage(_pausePanel.transform, "Card", Pale, new Vector2(620f, 500f),
+        UiFactory.CenteredImage(_pausePanel.transform, "Card", Pale, new Vector2(620f, 590f),
             Vector2.zero, UiFactory.RoundSprite, true);
         UiFactory.CenteredLabel(_pausePanel.transform, "Title", Loc.T(Loc.Pause), 68, Ink,
-            new Vector2(560f, 90f), new Vector2(0f, 165f));
+            new Vector2(560f, 90f), new Vector2(0f, 208f));
         UiFactory.Button(_pausePanel.transform, "Resume", Loc.T(Loc.Resume), Teal, 34,
-            new Vector2(380f, 82f), new Vector2(0f, 62f), Resume);
+            new Vector2(380f, 82f), new Vector2(0f, 110f), Resume);
         UiFactory.Button(_pausePanel.transform, "Restart", Loc.T(Loc.Restart), Steel, 32,
-            new Vector2(380f, 76f), new Vector2(0f, -32f), RestartLevel);
+            new Vector2(380f, 76f), new Vector2(0f, 20f), RestartLevel);
         UiFactory.Button(_pausePanel.transform, "Menu", Loc.T(Loc.ToMenu), Graphite, 32,
-            new Vector2(380f, 76f), new Vector2(0f, -126f), ShowHome);
+            new Vector2(380f, 76f), new Vector2(0f, -70f), ShowHome);
+        AddAudioSettingsButton(_pausePanel.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -158f));
         _pausePanel.SetActive(false);
     }
 
@@ -553,6 +570,139 @@ public sealed class GameController : MonoBehaviour
         rect.anchorMax = anchor;
         rect.anchoredPosition = position;
         _soundLabels.Add(button.GetComponentInChildren<Text>());
+    }
+
+    private void AddAudioSettingsButton(Transform parent, Vector2 anchor, Vector2 position)
+    {
+        UiFactory.Button(parent, "AudioSettingsButton", Loc.T(Loc.AudioSettingsShort), Steel, 24,
+            new Vector2(170f, 62f), position, ShowAudioSettings);
+        // UiFactory centres on (0.5, 0.5); move the button to the requested
+        // anchor without changing its authored design size.
+        Transform button = parent.Find("AudioSettingsButton");
+        if (button != null)
+        {
+            var rect = button.GetComponent<RectTransform>();
+            rect.anchorMin = anchor;
+            rect.anchorMax = anchor;
+            rect.anchoredPosition = position;
+        }
+    }
+
+    private void BuildAudioSettings()
+    {
+        _audioPanel = Panel("AudioSettingsDialog");
+        var dim = UiFactory.StretchImage(_audioPanel.transform, "Dim", new Color(0f, 0f, 0f, 0.55f));
+        dim.raycastTarget = true;
+        UiFactory.CenteredImage(_audioPanel.transform, "Card", Pale, new Vector2(760f, 620f),
+            Vector2.zero, UiFactory.RoundSprite, true);
+        UiFactory.CenteredLabel(_audioPanel.transform, "Title", Loc.T(Loc.AudioSettings), 44, Ink,
+            new Vector2(660f, 70f), new Vector2(0f, 255f));
+
+        _musicToggleButton = UiFactory.Button(_audioPanel.transform, "MusicToggle", "", Teal, 28,
+            new Vector2(430f, 66f), new Vector2(0f, 180f), ToggleMusic);
+        _musicToggleLabel = _musicToggleButton.GetComponentInChildren<Text>();
+        _sfxToggleButton = UiFactory.Button(_audioPanel.transform, "SfxToggle", "", Steel, 28,
+            new Vector2(430f, 66f), new Vector2(0f, 105f), ToggleSfx);
+        _sfxToggleLabel = _sfxToggleButton.GetComponentInChildren<Text>();
+        _muteToggleButton = UiFactory.Button(_audioPanel.transform, "MuteToggle", "", Graphite, 28,
+            new Vector2(430f, 66f), new Vector2(0f, 30f), ToggleMute);
+        _muteToggleLabel = _muteToggleButton.GetComponentInChildren<Text>();
+
+        BuildVolumeRow(0, Loc.MasterVolume, -48f, delegate { ChangeVolume(0, -0.05f); },
+            delegate { ChangeVolume(0, 0.05f); });
+        BuildVolumeRow(1, Loc.MusicVolume, -123f, delegate { ChangeVolume(1, -0.05f); },
+            delegate { ChangeVolume(1, 0.05f); });
+        BuildVolumeRow(2, Loc.SfxVolume, -198f, delegate { ChangeVolume(2, -0.05f); },
+            delegate { ChangeVolume(2, 0.05f); });
+
+        UiFactory.Button(_audioPanel.transform, "Close", Loc.T(Loc.Close), Teal, 30,
+            new Vector2(250f, 66f), new Vector2(0f, -265f), CloseAudioSettings);
+        _audioPanel.SetActive(false);
+        UpdateAudioLabels();
+    }
+
+    private void BuildVolumeRow(int index, string titleKey, float y, UnityEngine.Events.UnityAction minus,
+        UnityEngine.Events.UnityAction plus)
+    {
+        UiFactory.CenteredLabel(_audioPanel.transform, "VolumeTitle" + index, Loc.T(titleKey), 25, Ink,
+            new Vector2(280f, 56f), new Vector2(-210f, y));
+        UiFactory.Button(_audioPanel.transform, "VolumeMinus" + index, "-", Steel, 28,
+            new Vector2(68f, 58f), new Vector2(80f, y), minus);
+        _volumeLabels[index] = UiFactory.CenteredLabel(_audioPanel.transform, "VolumeValue" + index,
+            "100%", 25, Ink, new Vector2(120f, 56f), new Vector2(175f, y));
+        UiFactory.Button(_audioPanel.transform, "VolumePlus" + index, "+", Steel, 28,
+            new Vector2(68f, 58f), new Vector2(270f, y), plus);
+    }
+
+    private void ShowAudioSettings()
+    {
+        AudioManager.PlayUi("click");
+        UpdateAudioLabels();
+        if (_updatePanel != null) _updatePanel.SetActive(false);
+        _audioPanel.SetActive(true);
+    }
+
+    private void CloseAudioSettings()
+    {
+        AudioManager.PlayUi("click");
+        _audioPanel.SetActive(false);
+    }
+
+    private void ToggleMusic()
+    {
+        AudioManager.MusicEnabled = !AudioManager.MusicEnabled;
+        UpdateAudioLabels();
+        AudioManager.PlayUi("click");
+    }
+
+    private void ToggleSfx()
+    {
+        AudioManager.SfxEnabled = !AudioManager.SfxEnabled;
+        UpdateAudioLabels();
+        AudioManager.PlayUi("click");
+    }
+
+    private void ToggleMute()
+    {
+        AudioManager.Muted = !AudioManager.Muted;
+        UpdateAudioLabels();
+        AudioManager.PlayUi("click");
+    }
+
+    private void ChangeVolume(int index, float delta)
+    {
+        if (index == 0) AudioManager.MasterVolume = Mathf.Round((AudioManager.MasterVolume + delta) * 100f) / 100f;
+        else if (index == 1) AudioManager.MusicVolume = Mathf.Round((AudioManager.MusicVolume + delta) * 100f) / 100f;
+        else AudioManager.SfxVolume = Mathf.Round((AudioManager.SfxVolume + delta) * 100f) / 100f;
+        UpdateAudioLabels();
+        AudioManager.PlayUi("click");
+    }
+
+    private static string Percent(float value)
+    {
+        return Mathf.RoundToInt(value * 100f) + "%";
+    }
+
+    private void UpdateAudioLabels()
+    {
+        if (_musicToggleLabel != null)
+            _musicToggleLabel.text = Loc.T(AudioManager.MusicEnabled ? Loc.MusicOn : Loc.MusicOff);
+        if (_sfxToggleLabel != null)
+            _sfxToggleLabel.text = Loc.T(AudioManager.SfxEnabled ? Loc.SfxOn : Loc.SfxOff);
+        if (_muteToggleLabel != null)
+            _muteToggleLabel.text = Loc.T(AudioManager.Muted ? Loc.MuteOff : Loc.MuteOn);
+        if (_musicToggleButton != null)
+            _musicToggleButton.GetComponent<Image>().color = AudioManager.MusicEnabled ? Teal : Graphite;
+        if (_sfxToggleButton != null)
+            _sfxToggleButton.GetComponent<Image>().color = AudioManager.SfxEnabled ? Steel : Graphite;
+        if (_muteToggleButton != null)
+            _muteToggleButton.GetComponent<Image>().color = AudioManager.Muted ? Graphite : Steel;
+        if (_volumeLabels[0] != null) _volumeLabels[0].text = Percent(AudioManager.MasterVolume);
+        if (_volumeLabels[1] != null) _volumeLabels[1].text = Percent(AudioManager.MusicVolume);
+        if (_volumeLabels[2] != null) _volumeLabels[2].text = Percent(AudioManager.SfxVolume);
+        string quickLabel = Loc.T(AudioManager.Muted ? Loc.SoundOff : Loc.SoundOn);
+        for (int i = 0; i < _soundLabels.Count; i++)
+            if (_soundLabels[i] != null) _soundLabels[i].text = quickLabel;
     }
 
     // ---------------------------------------------------------- auto update
@@ -699,6 +849,8 @@ public sealed class GameController : MonoBehaviour
     private void ShowHome()
     {
         StopAllCoroutines();
+        AudioManager.StopTool();
+        AudioManager.SetMusicMode("menu");
         ReleaseLevel();
         _screen = ScreenId.Home;
         _homePanel.SetActive(true);
@@ -707,6 +859,7 @@ public sealed class GameController : MonoBehaviour
         _pausePanel.SetActive(false);
         _exitPanel.SetActive(false);
         if (_updatePanel != null) _updatePanel.SetActive(false);
+        if (_audioPanel != null) _audioPanel.SetActive(false);
         _paused = false;
         _exitOpen = false;
         _rewarding = false;
@@ -719,6 +872,8 @@ public sealed class GameController : MonoBehaviour
     private void ShowLevels()
     {
         StopAllCoroutines();
+        AudioManager.StopTool();
+        AudioManager.SetMusicMode("menu");
         ReleaseLevel();
         _screen = ScreenId.Levels;
         _homePanel.SetActive(false);
@@ -727,6 +882,7 @@ public sealed class GameController : MonoBehaviour
         _pausePanel.SetActive(false);
         _exitPanel.SetActive(false);
         if (_updatePanel != null) _updatePanel.SetActive(false);
+        if (_audioPanel != null) _audioPanel.SetActive(false);
         _paused = false;
         _exitOpen = false;
         Time.timeScale = 1f;
@@ -744,8 +900,11 @@ public sealed class GameController : MonoBehaviour
         }
 
         StopAllCoroutines();
+        AudioManager.StopTool();
+        AudioManager.SetMusicMode("wash");
         ReleaseLevel();
         ReleaseCard();
+        if (_audioPanel != null) _audioPanel.SetActive(false);
 
         _level = index;
         _levelDef = GameData.Levels[index];
@@ -760,12 +919,15 @@ public sealed class GameController : MonoBehaviour
         _exitOpen = false;
         Time.timeScale = 1f;
 
+        byte[] panelMask;
         Color32[] pixels = CarArt.Render(_levelDef.Kind, _levelDef.Body, _levelDef.Accent,
-            _levelDef.Size, 384, 256);
-        _surface = new WashSurface(pixels, 384, 256, _levelDef.Dirt, index + 1, _levelDef.DirtType);
+            _levelDef.Size, 384, 256, out panelMask);
+        _surface = new WashSurface(pixels, 384, 256, _levelDef.Dirt, index + 1,
+            _levelDef.DirtType, panelMask);
         _overlayTexture = _surface.Texture;
         _car.Load(pixels, _levelDef, _surface);
-        _washing.Begin(_surface, _levelDef.Size);
+        _washing.Begin(_surface, _levelDef.Size, _car.CarRect,
+            Mathf.Clamp(brushRadiusMultiplier, 0.8f, 1.6f));
 
         _stages = GameData.StagesFor(index);
         _stageIndex = 0;
@@ -973,7 +1135,9 @@ public sealed class GameController : MonoBehaviour
     private void OnStrokeStarted(WashStage stage)
     {
         _hint.SetActive(false);
-        AudioManager.Play(WashingTools.Sound(stage));
+        // One reusable looping source per tool family. Nothing is created on
+        // a stroke and no identical water loops can pile up.
+        AudioManager.StartTool(WashingTools.Sound(stage));
         _toolIcon.rectTransform.localScale = new Vector3(1.18f, 1.18f, 1f);
         _toolCursor.sprite = WashingTools.Icon(stage);
         _toolCursor.gameObject.SetActive(true);
@@ -981,6 +1145,9 @@ public sealed class GameController : MonoBehaviour
 
     private void OnStrokeEnded()
     {
+        // Fade out over a few frames in AudioManager.Tick; the loop keeps
+        // playing quietly until the envelope reaches zero, then stops itself.
+        AudioManager.StopTool();
         if (_toolCursor != null) _toolCursor.gameObject.SetActive(false);
         if (_stream != null) _stream.gameObject.SetActive(false);
     }
@@ -990,6 +1157,11 @@ public sealed class GameController : MonoBehaviour
         if (_car != null) _car.WashPulse(uv);
         _toolIcon.rectTransform.localScale = Vector3.Lerp(_toolIcon.rectTransform.localScale,
             Vector3.one, 0.35f);
+
+        // Louder while the child actually moves the tool, quiet when the finger
+        // holds still. AudioManager smooths the change, so there are no steps.
+        float travel = Vector2.Distance(uv, _lastToolUv);
+        AudioManager.SetToolActivity(Mathf.Clamp01(travel / 0.035f));
 
         float w = _washRect.sizeDelta.x;
         float h = _washRect.sizeDelta.y;
@@ -1097,12 +1269,30 @@ public sealed class GameController : MonoBehaviour
     private IEnumerator AdvanceStage()
     {
         _transitioning = true;
-        _washing.FillCurrent(_stage);
-        _progressFill.rectTransform.localScale = new Vector3(1f, 1f, 1f);
-        _flashAlpha = 0.42f;
+        AudioManager.StopTool();
+        // Gameplay threshold (ZoneFinish) already released the stage. This is
+        // only the visible finishing pass: the last few texels are filled over
+        // 0.5-1.2 seconds from the SAME masks that are uploaded to the texture.
+        _washing.BeginCompletion(_stage);
         _instruction.text = Loc.T(Loc.Great);
-        AudioManager.Play("star");
-        yield return new WaitForSecondsRealtime(Mathf.Max(0.1f, stageTransitionSeconds));
+        AudioManager.PlayUi("star");
+
+        float duration = Mathf.Clamp(stageTransitionSeconds, 0.5f, 1.2f);
+        float start = Time.unscaledTime;
+        while (true)
+        {
+            float t = Mathf.Clamp01((Time.unscaledTime - start) / duration);
+            _washing.AdvanceCompletion(t);
+            _displayProgress = _washing.Progress(_stage);
+            _progressFill.rectTransform.localScale = new Vector3(
+                Mathf.Max(0.001f, _displayProgress), 1f, 1f);
+            if (t >= 1f) break;
+            yield return null;
+        }
+        _washing.AdvanceCompletion(1f);
+        _progressFill.rectTransform.localScale = new Vector3(1f, 1f, 1f);
+        _flashAlpha = 0.18f;
+        yield return new WaitForSecondsRealtime(0.12f);
 
         _stageIndex++;
         if (_stageIndex >= _stages.Length)
@@ -1135,22 +1325,32 @@ public sealed class GameController : MonoBehaviour
     {
         _rewarding = true;
         _skipReward = false;
+        AudioManager.StopTool();
+        AudioManager.SetMusicMode("finale");
         _skipButton.gameObject.SetActive(true);
         _hint.SetActive(false);
         for (int i = 0; i < _sparkles.Length; i++) _sparkles[i].gameObject.SetActive(false);
 
-        // Phase 0 - the clean car sparkles.
+        // Phase 0 - one diagonal polishing sweep, then the clean car sparkles.
+        // The sweep replaces the old instant overlay hide, so drying ends with
+        // an understandable final action instead of a texture popping away.
         _washing.FinishAll();
-        _car.HideOverlay();
-        _flashAlpha = 0.6f;
+        _washing.BeginFinalShine();
         _instruction.text = Loc.T(Loc.Sparkle);
-        AudioManager.Play("star");
-        yield return StartCoroutine(RewardPhase(rewardSparkleSeconds, null));
+        AudioManager.PlayUi("star");
+        yield return StartCoroutine(RewardPhase(rewardSparkleSeconds, t =>
+        {
+            if (_surface != null) _surface.AdvanceFinalShine(t);
+        }));
+        if (_surface != null) _surface.EndFinalShine();
+        _car.HideOverlay();
+        _flashAlpha = 0.34f;
 
         // Phase 1 - the driver enters from the edge of the screen (1.5 s).
         Vector2 home = Vector2.zero;
         _animal.Show(_level, _levelDef.Driver);
         home = _animal.Home;
+        AudioManager.PlayAnimal(_level);
         AudioManager.Play("win");
         yield return StartCoroutine(RewardPhase(1.5f, t =>
         {
@@ -1176,6 +1376,7 @@ public sealed class GameController : MonoBehaviour
         }));
 
         // Phase 4 - the driver walks to the car and gets in (2 s).
+        AudioManager.PlayUi("jump");
         _animal.SetSpeech("", false);
         yield return StartCoroutine(RewardPhase(2f, t =>
         {
@@ -1186,6 +1387,7 @@ public sealed class GameController : MonoBehaviour
         AudioManager.Play("horn");
 
         // Phase 5 - the car drives away before the completion card appears.
+        AudioManager.PlayAmbient("depart");
         yield return StartCoroutine(RewardPhase(driveAwaySeconds, t => _car.DriveAway(t)));
         // A skip fast-forwards the phases, but it must still leave the world
         // in the same final pose as a fully watched celebration.
@@ -1233,6 +1435,7 @@ public sealed class GameController : MonoBehaviour
     private void ShowPause()
     {
         if (_screen != ScreenId.Play || _transitioning || _rewarding || _completeCard.activeSelf) return;
+        AudioManager.StopTool();
         _paused = true;
         Time.timeScale = 0f;
         _pausePanel.SetActive(true);
@@ -1278,16 +1481,11 @@ public sealed class GameController : MonoBehaviour
 
     private void ToggleSound()
     {
-        AudioManager.Enabled = !AudioManager.Enabled;
-        UpdateSoundLabels();
-        AudioManager.Play("click");
-    }
-
-    private void UpdateSoundLabels()
-    {
-        string label = AudioManager.Enabled ? Loc.T(Loc.SoundOn) : Loc.T(Loc.SoundOff);
-        for (int i = 0; i < _soundLabels.Count; i++)
-            if (_soundLabels[i] != null) _soundLabels[i].text = label;
+        // Quick one-tap silence. This changes only the global mute flag; the
+        // separate music/SFX switches in the settings dialog stay untouched.
+        AudioManager.Muted = !AudioManager.Muted;
+        UpdateAudioLabels();
+        AudioManager.PlayUi("click");
     }
 
     // ------------------------------------------------------------ resource life
@@ -1316,6 +1514,7 @@ public sealed class GameController : MonoBehaviour
 
     private void OnDestroy()
     {
+        AudioManager.StopTool();
         if (_updates != null)
         {
             _updates.Checked -= OnUpdateChecked;

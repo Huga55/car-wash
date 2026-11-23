@@ -20,6 +20,17 @@ public static class CarArt
 
     public static Color32[] Render(CarKind kind, Color body, Color accent, float scale, int width, int height)
     {
+        byte[] unusedMask;
+        return Render(kind, body, accent, scale, width, height, out unusedMask);
+    }
+
+    /// <summary>Renders the car and, in <paramref name="panelMask"/>, marks only
+    /// the painted body panels. Glass, tires, lights, mirrors and the ground
+    /// shadow are deliberately excluded: they have their own visual logic and
+    /// must not become invisible when the child washes the bodywork.</summary>
+    public static Color32[] Render(CarKind kind, Color body, Color accent, float scale, int width, int height,
+        out byte[] panelMask)
+    {
         var p = new Painter(width, height, scale, body, accent);
         p.GroundShadow();
         switch (kind)
@@ -50,6 +61,7 @@ public static class CarArt
         // the different body shapes read as painted metal rather than flat
         // stickers without any runtime shaders or extra textures.
         p.FinishShading();
+        panelMask = p.PanelMask;
         return p.Pixels;
     }
 
@@ -71,6 +83,7 @@ public static class CarArt
         public readonly int W;
         public readonly int H;
         public readonly Color32[] Pixels;
+        public readonly byte[] PanelMask;
         private readonly float _scale;
         private readonly Color32 _body;
         private readonly Color32 _accent;
@@ -83,6 +96,7 @@ public static class CarArt
             _body = body;
             _accent = accent;
             Pixels = new Color32[w * h];
+            PanelMask = new byte[w * h];
         }
 
         // All authored points are normalised 0..1 with y pointing up. Primitive
@@ -110,6 +124,24 @@ public static class CarArt
                 (byte)((source.g * alpha + d.g * inv) / outA),
                 (byte)((source.b * alpha + d.b * inv) / outA),
                 (byte)(outA * 255f));
+            // The mask is authoritative instead of the sprite alpha. A later
+            // opaque detail (glass, wheel, lamp) must erase the panel flag
+            // left by an earlier body shape, otherwise those parts become
+            // phantom wash zones with a boundary inside the bodywork.
+            if (IsPanelColor(source)) PanelMask[i] = 255;
+            else if (alpha >= 0.82f) PanelMask[i] = 0;
+        }
+
+        private bool IsPanelColor(Color32 c)
+        {
+            if ((c.r == _body.r && c.g == _body.g && c.b == _body.b) ||
+                (c.r == _accent.r && c.g == _accent.g && c.b == _accent.b))
+                return true;
+            // Painted service stripes are bodywork too. Glass, tires, hubs and
+            // lamps use distinct colours and are cleared by the branch above.
+            return (c.r == White.r && c.g == White.g && c.b == White.b) ||
+                   (c.r == Red.r && c.g == Red.g && c.b == Red.b) ||
+                   (c.r == Blue.r && c.g == Blue.g && c.b == Blue.b);
         }
 
         private void RoundRect(float cx, float cy, float w, float h, float r, Color32 color)

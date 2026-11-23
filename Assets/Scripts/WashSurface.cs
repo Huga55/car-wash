@@ -36,8 +36,20 @@ public sealed class WashSurface
     private readonly float[] _soap = new float[N];
     private readonly float[] _shine = new float[N];
     private readonly float[] _shade = new float[N];
+    // -1 = no sweep; 0..1 = one diagonal polish pass across the dry paint.
+    private float _shineSweep = -1f;
     private readonly float[] _silhouette = new float[N];
     private readonly byte[] _zone = new byte[N];
+
+    // Smooth "the child did 82%, the game finishes the last 18%" animation.
+    // These arrays are allocated once and reused for every stage transition.
+    private readonly int[] _finishIndices = new int[N];
+    private readonly float[] _finishFrom = new float[N];
+    private int _finishCount;
+    private float[] _finishTarget;
+    private WashStage _finishStage = WashStage.Done;
+    private int _finishMinX, _finishMinY, _finishMaxX, _finishMaxY;
+    private Rect _bodyBounds = new Rect(0f, 0f, 0f, 0f);
     private readonly float[] _zoneTotal = new float[ZoneCount];
     private readonly float[][] _zoneSums =
     {
@@ -60,8 +72,13 @@ public sealed class WashSurface
 
     public Texture2D Texture { get { return _texture; } }
 
+    /// <summary>UV rectangle of the actual paintable panels. Input hit testing
+    /// and brush radius use this instead of the whole transparent car sprite,
+    /// which is what made buses and trucks feel like they had phantom edges.</summary>
+    public Rect BodyBounds { get { return _bodyBounds; } }
+
     public WashSurface(Color32[] carPixels, int carW, int carH, float dirtAmount, int seed,
-        DirtKind dirtType = DirtKind.Mud)
+        DirtKind dirtType = DirtKind.Mud, byte[] panelMask = null)
     {
         _output = new Color32[N];
         _upload = new Color32[N];
@@ -87,7 +104,13 @@ public sealed class WashSurface
                 int i = y * W + x;
                 int sx = Mathf.Min(carW - 1, (int)((x + 0.5f) * carW / W));
                 int sy = Mathf.Min(carH - 1, (int)((y + 0.5f) * carH / H));
-                float sil = carPixels[sy * carW + sx].a / 255f;
+                int sourceIndex = sy * carW + sx;
+                float alpha = carPixels[sourceIndex].a / 255f;
+                // panelMask comes from CarArt and contains only body panels.
+                // Without it (legacy callers) the alpha channel is the best
+                // available approximation of the visible surface.
+                float panel = panelMask != null ? panelMask[sourceIndex] / 255f : alpha;
+                float sil = alpha * panel;
                 _silhouette[i] = sil;
                 _total += sil;
 
@@ -95,6 +118,22 @@ public sealed class WashSurface
                 byte zone = (byte)((y > H * 0.5f ? 0 : 3) + column);
                 _zone[i] = zone;
                 _zoneTotal[zone] += sil;
+
+                if (sil > 0.18f)
+                {
+                    float u = (x + 0.5f) / W;
+                    float v = (y + 0.5f) / H;
+                    if (_bodyBounds.width <= 0f)
+                        _bodyBounds = new Rect(u, v, 0f, 0f);
+                    else
+                    {
+                        float left = Mathf.Min(_bodyBounds.xMin, u);
+                        float bottom = Mathf.Min(_bodyBounds.yMin, v);
+                        float right = Mathf.Max(_bodyBounds.xMax, u);
+                        float top = Mathf.Max(_bodyBounds.yMax, v);
+                        _bodyBounds = new Rect(left, bottom, right - left, top - bottom);
+                    }
+                }
 
                 float n = Mathf.PerlinNoise(x * 0.045f + seed * 0.17f, y * 0.045f + seed * 0.29f);
                 float h = Hash(x, y, seed);
@@ -123,6 +162,9 @@ public sealed class WashSurface
                 _shine[i] = Mathf.Clamp01(sparkle);
             }
         }
+
+        if (_bodyBounds.width <= 0f || _bodyBounds.height <= 0f)
+            _bodyBounds = new Rect(0.05f, 0.06f, 0.90f, 0.86f);
 
         _texture = new Texture2D(W, H, TextureFormat.RGBA32, false)
         {
@@ -171,7 +213,8 @@ public sealed class WashSurface
             for (int x = x0; x <= x1; x++)
             {
                 int i = y * W + x;
-                if (_silhouette[i] < 0.02f) continue;
+                float sil = _silhouette[i];
+                if (sil < 0.02f) continue;
                 float dx = (x + 0.5f - cx) * 1.5f;
                 float d = Mathf.Sqrt(dx * dx + dy * dy);
                 if (d >= prY) continue;
@@ -183,10 +226,21 @@ public sealed class WashSurface
 
                 PaintMask(stage, i, amount);
 
-                if (stage == WashStage.Rinse)
+                if (stage == WashStage.Scrub)
+                {
+                    // A sponge pushes foam aside as it lifts dirt. Removing it
+                    // from the same foam mask keeps coverage numbers honest and
+                    // makes "partially scrubbed" visibly different from foam.
+                    float before = _foam[i];
+                    float after = before * (1f - falloff * 0.78f);
+                    float removed = (before - after) * sil;
+                    _foam[i] = after;
+                    _foamSum = Mathf.Max(0f, _foamSum - removed);
+                    _zoneSums[1][_zone[i]] = Mathf.Max(0f, _zoneSums[1][_zone[i]] - removed);
+                }
+                else if (stage == WashStage.Rinse)
                 {
                     _foam[i] *= 1f - falloff * 0.95f;
-                    _wet[i] *= 1f - falloff * 0.75f;
                 }
             }
         }
@@ -199,26 +253,105 @@ public sealed class WashSurface
         }
     }
 
-    /// <summary>Finish the current stage so no tiny spot is left behind. Only
-    /// zones that are already reasonably covered are completed, so a child
-    /// still has to visit the whole car before the stage can advance.</summary>
-    public void FillCurrent(WashStage stage)
+    /// <summary>Prepares the last few uncovered texels for a smooth finish.
+    /// The game calls this only after the child has reached ZoneFinish in
+    /// every zone, so the remaining area is small. No texture changes yet.</summary>
+    public bool BeginCompletion(WashStage stage)
     {
-        if (stage == WashStage.Done) return;
+        if (stage == WashStage.Done) return false;
         float[] target = Target(stage);
         float[] zoneSum = ZoneSums(stage);
+        _finishCount = 0;
+        _finishStage = stage;
+        _finishTarget = target;
+        _finishMinX = W;
+        _finishMinY = H;
+        _finishMaxX = -1;
+        _finishMaxY = -1;
 
         for (int i = 0; i < N; i++)
         {
-            if (_silhouette[i] < 0.02f) continue;
+            float sil = _silhouette[i];
+            if (sil < 0.02f || target[i] >= 0.999f) continue;
             byte z = _zone[i];
-            if (_zoneTotal[z] <= 0f || zoneSum[z] / _zoneTotal[z] >= ZoneFinish) continue;
-            target[i] = 1f;
+            if (_zoneTotal[z] <= 0f || zoneSum[z] / _zoneTotal[z] < ZoneFinish) continue;
+            int x = i % W;
+            int y = i / W;
+            _finishIndices[_finishCount] = i;
+            _finishFrom[_finishCount] = target[i];
+            _finishCount++;
+            if (x < _finishMinX) _finishMinX = x;
+            if (y < _finishMinY) _finishMinY = y;
+            if (x > _finishMaxX) _finishMaxX = x;
+            if (y > _finishMaxY) _finishMaxY = y;
         }
+        return _finishCount > 0;
+    }
 
-        Recount(stage);
+    /// <summary>Advances the prepared completion animation. Coverages and zone
+    /// sums are updated from the same values that are uploaded to the texture,
+    /// so the UI progress bar and the visible surface can never disagree.</summary>
+    public float AdvanceCompletion(float t)
+    {
+        if (_finishCount == 0 || _finishTarget == null) return 1f;
+        float eased = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t));
+        float sum = Sum(_finishStage);
+        float[] zones = ZoneSums(_finishStage);
+        for (int k = 0; k < _finishCount; k++)
+        {
+            int i = _finishIndices[k];
+            float before = _finishTarget[i];
+            float after = Mathf.Lerp(_finishFrom[k], 1f, eased);
+            _finishTarget[i] = after;
+            float delta = (after - before) * _silhouette[i];
+            sum += delta;
+            zones[_zone[i]] += delta;
+        }
+        SetSum(_finishStage, sum);
+        if (_finishMinX <= _finishMaxX && _finishMinY <= _finishMaxY)
+            MarkDirty(_finishMinX, Mathf.Max(0, _finishMinY - 20), _finishMaxX, _finishMaxY);
+        Upload();
+
+        if (t >= 1f)
+        {
+            _finishCount = 0;
+            _finishTarget = null;
+            _finishStage = WashStage.Done;
+        }
+        return eased;
+    }
+
+    /// <summary>One slow polishing pass after the last droplet disappears. It is
+    /// a narrow moving highlight, not a whole-surface flash, so the dried paint
+    /// stays polished instead of turning white.</summary>
+    public void BeginFinalShine()
+    {
+        _shineSweep = 0f;
         MarkDirty(0, 0, W - 1, H - 1);
         Upload();
+    }
+
+    public void AdvanceFinalShine(float t)
+    {
+        if (_shineSweep < 0f) return;
+        _shineSweep = Mathf.Clamp01(t);
+        MarkDirty(0, 0, W - 1, H - 1);
+        Upload();
+    }
+
+    public void EndFinalShine()
+    {
+        if (_shineSweep < 0f) return;
+        _shineSweep = -1f;
+        MarkDirty(0, 0, W - 1, H - 1);
+        Upload();
+    }
+
+    /// <summary>Instant variant kept for editor checks and tests. Gameplay uses
+    /// BeginCompletion + AdvanceCompletion so the change is always visible.</summary>
+    public void FillCurrent(WashStage stage)
+    {
+        if (BeginCompletion(stage)) AdvanceCompletion(1f);
     }
 
     /// <summary>Final celebration state: clean, dry and shiny with no dirt left.</summary>
@@ -265,6 +398,35 @@ public sealed class WashSurface
     public bool HasZone(int zone)
     {
         return zone >= 0 && zone < ZoneCount && _zoneTotal[zone] > 0f;
+    }
+
+    /// <summary>True only when the finger is over a real body panel. A
+    /// one-texel neighbourhood keeps edge strokes from falling through when
+    /// the car image bobs or rotates by a fraction of a degree.</summary>
+    public bool IsPaintable(float u, float v)
+    {
+        int cx = Mathf.Clamp(Mathf.FloorToInt(u * W), 0, W - 1);
+        int cy = Mathf.Clamp(Mathf.FloorToInt(v * H), 0, H - 1);
+        for (int oy = -1; oy <= 1; oy++)
+        {
+            int y = cy + oy;
+            if (y < 0 || y >= H) continue;
+            for (int ox = -1; ox <= 1; ox++)
+            {
+                int x = cx + ox;
+                if (x < 0 || x >= W) continue;
+                if (_silhouette[y * W + x] > 0.06f) return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Reads the composited overlay pixel; used by visual tests to
+    /// compare states by colour instead of trusting internal flags.</summary>
+    public Color32 OverlayPixel(int x, int y)
+    {
+        if (x < 0 || x >= W || y < 0 || y >= H) return new Color32(0, 0, 0, 0);
+        return _output[y * W + x];
     }
 
     /// <summary>The weakest zone decides whether the stage is finished.</summary>
@@ -452,33 +614,67 @@ public sealed class WashSurface
                 float trail = 0f;
                 if (y >= 8) trail += _wet[(y - 8) * W + x] * 0.34f;
                 if (y >= 19) trail += _wet[(y - 19) * W + x] * 0.17f;
-                float wetLayer = Mathf.Clamp01(wet + trail * _runoff[i]) * (1f - clean);
+                // Rinsing removes foam, not water. A cleaned panel keeps a thin
+                // clear film until the dryer arrives, so "clean wet" and
+                // "clean dry" are visibly different states.
+                float rinseFilm = clean * (1f - _dry[i]) * 0.46f;
+                float wetLayer = Mathf.Clamp01(wet + trail * _runoff[i] + rinseFilm) *
+                                 (1f - _dry[i]);
 
                 float r = 0f, g = 0f, b = 0f, a = 0f;
-                // Layer order: wet film -> runoff droplets -> dirt -> foam ->
-                // soap marks from the sponge -> final sparkle.
-                Blend(ref r, ref g, ref b, ref a, 30f, 78f, 116f, wetLayer * 0.46f);
-                Blend(ref r, ref g, ref b, ref a, 188f, 224f, 244f,
-                    wetLayer * _droplets[i] * 0.80f);
+                // Wet: a dark, saturated film with a cool moving reflection.
+                // This is much stronger than a faint tint so a child can see
+                // instantly where the hose has already been.
+                Blend(ref r, ref g, ref b, ref a, 20f, 54f, 88f, wetLayer * 0.68f);
+                Blend(ref r, ref g, ref b, ref a, 104f, 172f, 212f,
+                    wetLayer * _runoff[i] * 0.36f);
 
+                // Dry dirt is matte and uneven; wet dirt darkens and loses
+                // contrast instead of disappearing behind the water film.
+                float dirtAlpha = _dirt[i] * (1f - clean) * (1f - 0.72f * scrub) *
+                                  (1f - 0.50f * wetLayer);
                 Blend(ref r, ref g, ref b, ref a,
-                    _dirtColor.r + shade * 30f, _dirtColor.g + shade * 24f, _dirtColor.b + shade * 18f,
-                    _dirt[i] * (1f - 0.38f * wetLayer) * (1f - clean) * (1f - 0.70f * scrub));
+                    _dirtColor.r + shade * 26f, _dirtColor.g + shade * 21f, _dirtColor.b + shade * 16f,
+                    dirtAlpha * 0.96f);
+
+                // Droplets, small streaks and a narrow moving glint sit on top
+                // of the dirt, so wet areas read as glossy even in a small HUD.
+                Blend(ref r, ref g, ref b, ref a, 196f, 232f, 252f,
+                    wetLayer * _droplets[i] * 0.94f);
+                Blend(ref r, ref g, ref b, ref a, 238f, 250f, 255f,
+                    wetLayer * _shine[i] * _runoff[i] * 0.44f);
 
                 float foamTrail = 0f;
                 if (y >= 6) foamTrail += _foam[(y - 6) * W + x] * 0.22f;
                 float foamLayer = Mathf.Clamp01(foam + foamTrail * _runoff[i]) * bub * (1f - clean);
                 Blend(ref r, ref g, ref b, ref a,
-                    226f + 29f * bub, 236f + 19f * bub, 244f + 11f * bub, foamLayer);
+                    230f + 25f * bub, 238f + 17f * bub, 246f + 9f * bub, foamLayer);
                 // Brighter bubble caps break up the flat white foam layer.
                 Blend(ref r, ref g, ref b, ref a, 255f, 255f, 255f,
-                    foamLayer * Mathf.Clamp01((bub - 0.72f) * 3.6f) * 0.55f);
+                    foamLayer * Mathf.Clamp01((bub - 0.72f) * 3.6f) * 0.62f);
 
                 float soap = scrub * foam * _soap[i] * (1f - clean);
                 Blend(ref r, ref g, ref b, ref a, 232f, 242f, 238f, soap * 0.48f);
 
-                float shine = Mathf.Clamp01(_shine[i] + _dry[i] * 0.18f);
-                Blend(ref r, ref g, ref b, ref a, 255f, 255f, 238f, clean * shine * 0.85f);
+                // Drying replaces the wet film with a restrained polished
+                // lacquer: a cool reflection plus a few warm anisotropic
+                // highlights. It never floods the whole panel with white.
+                float dry = _dry[i] * clean;
+                float band = 1f - Mathf.Abs(Mathf.Sin(
+                    (x * 0.046f + y * 0.022f + shade * 1.7f) * Mathf.PI)) * 3.2f;
+                float polish = dry * Mathf.Clamp01(0.30f + _shine[i] * 0.85f +
+                                                   Mathf.Clamp01(band) * 0.55f);
+                Blend(ref r, ref g, ref b, ref a, 178f, 218f, 248f, dry * _runoff[i] * 0.20f);
+                Blend(ref r, ref g, ref b, ref a, 255f, 252f, 232f, polish * 0.56f);
+
+                if (_shineSweep >= 0f)
+                {
+                    float sweepPos = Mathf.Lerp(-0.25f, 1.25f, _shineSweep);
+                    float diagonal = (x / (float)W) * 0.72f + (y / (float)H) * 0.28f;
+                    float offset = (diagonal - sweepPos) * 9f;
+                    float sweepBand = Mathf.Exp(-offset * offset) * dry;
+                    Blend(ref r, ref g, ref b, ref a, 255f, 250f, 226f, sweepBand * 0.48f);
+                }
 
                 a *= sil;
                 // Mathf.Clamp has float and int overloads. Without 255f the

@@ -36,15 +36,24 @@ public static class WashingTools
         return UiFactory.ToolSprite(ForStage(stage));
     }
 
-    public static float Radius(WashStage stage, float carScale)
+    /// <summary>Default is 25% larger than the original brush. The multiplier
+    /// is exposed on GameController so the balance can be tuned in Inspector
+    /// without touching code.</summary>
+    public static float Radius(WashStage stage, float carScale, float multiplier = 1.25f)
     {
+        float baseRadius;
         switch (stage)
         {
-            case WashStage.Scrub: return 0.070f;
-            case WashStage.Dry: return 0.100f;
-            case WashStage.Foam: return 0.095f;
-            default: return carScale < 0.80f ? 0.098f : 0.086f;
+            case WashStage.Scrub: baseRadius = 0.070f; break;
+            case WashStage.Dry: baseRadius = 0.100f; break;
+            case WashStage.Foam: baseRadius = 0.095f; break;
+            default: baseRadius = carScale < 0.80f ? 0.098f : 0.086f; break;
         }
+        // Small cars occupy less of the wash rectangle; scale the brush with
+        // the visible body instead of using one UV radius for every vehicle.
+        float sizeFactor = Mathf.Lerp(0.90f, 1.08f,
+            Mathf.Clamp01((carScale - 0.74f) / 0.26f));
+        return baseRadius * Mathf.Clamp(multiplier, 0.8f, 1.6f) * sizeFactor;
     }
 
     public static string Sound(WashStage stage)
@@ -65,6 +74,8 @@ public static class WashingTools
 public sealed class WashingController
 {
     private readonly RectTransform _washRect;
+    private RectTransform _carRect;
+    private float _radiusMultiplier = 1.25f;
     private readonly HashSet<int> _seen = new HashSet<int>();
     private readonly List<int> _stale = new List<int>();
     private readonly Dictionary<int, Vector2> _last = new Dictionary<int, Vector2>();
@@ -81,9 +92,11 @@ public sealed class WashingController
         _washRect = washRect;
     }
 
-    public void Begin(WashSurface surface, float carScale)
+    public void Begin(WashSurface surface, float carScale, RectTransform carRect, float radiusMultiplier)
     {
         _surface = surface;
+        _carRect = carRect != null ? carRect : _washRect;
+        _radiusMultiplier = radiusMultiplier;
         _radius = 0.09f;
         _last.Clear();
         _seen.Clear();
@@ -102,7 +115,7 @@ public sealed class WashingController
 
     public void Update(WashStage stage, bool active)
     {
-        _radius = WashingTools.Radius(stage, _carScale);
+        _radius = WashingTools.Radius(stage, _carScale, _radiusMultiplier);
         _seen.Clear();
 
         if (!active || _surface == null)
@@ -157,10 +170,27 @@ public sealed class WashingController
         return _surface != null && _surface.HasZone(zone);
     }
 
+    public bool BeginCompletion(WashStage stage)
+    {
+        _last.Clear();
+        return _surface != null && _surface.BeginCompletion(stage);
+    }
+
+    public float AdvanceCompletion(float t)
+    {
+        return _surface == null ? 1f : _surface.AdvanceCompletion(t);
+    }
+
     public void FillCurrent(WashStage stage)
     {
         _last.Clear();
         if (_surface != null) _surface.FillCurrent(stage);
+    }
+
+    public void BeginFinalShine()
+    {
+        _last.Clear();
+        if (_surface != null) _surface.BeginFinalShine();
     }
 
     public void FinishAll()
@@ -198,14 +228,19 @@ public sealed class WashingController
     {
         uv = Vector2.zero;
         Vector2 local;
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(_washRect, screenPosition, null, out local))
+        RectTransform target = _carRect != null ? _carRect : _washRect;
+        // Hit-test against the moving car image, not the static wash frame.
+        // The image bobs and turns a little while idle; using the frame here
+        // caused the finger and the painted pixels to diverge at the edges.
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(target, screenPosition, null, out local))
             return false;
 
-        Rect r = _washRect.rect;
+        Rect r = target.rect;
         float u = local.x / Mathf.Max(1f, r.width) + 0.5f;
         float v = local.y / Mathf.Max(1f, r.height) + 0.5f;
-        if (u < -0.08f || u > 1.08f || v < -0.08f || v > 1.08f) return false;
-        uv = new Vector2(Mathf.Clamp01(u), Mathf.Clamp01(v));
+        if (u < 0f || u > 1f || v < 0f || v > 1f) return false;
+        if (_surface != null && !_surface.IsPaintable(u, v)) return false;
+        uv = new Vector2(u, v);
         return true;
     }
 }

@@ -106,6 +106,8 @@ namespace LittleCarWashBuild
                 }
                 _report.Add("PASS all " + GameData.Kinds.Length + " cars render");
 
+                if (!CheckMechanicsAndStates()) return false;
+
                 WashStage[] stages = GameData.StagesFor(5);
                 var expected = new[] { WashStage.Wet, WashStage.Foam, WashStage.Scrub,
                     WashStage.Rinse, WashStage.Dry };
@@ -136,7 +138,7 @@ namespace LittleCarWashBuild
                 _report.Add("PASS visible dirt overlay (" + visible + " px)");
 
                 for (int i = 0; i < 40; i++)
-                    surface.Paint(0.2f, 0.75f, WashingTools.Radius(WashStage.Wet, 1f), WashStage.Wet);
+                    surface.Paint(0.2f, 0.75f, WashingTools.Radius(WashStage.Wet, 1f, 1.25f), WashStage.Wet);
                 if (surface.MinZoneProgress(WashStage.Wet) >= WashSurface.ZoneFinish)
                 {
                     _report.Add("FAIL repeated strokes finished a stage");
@@ -147,7 +149,7 @@ namespace LittleCarWashBuild
                 for (int y = 0; y <= 20; y++)
                     for (int x = 0; x <= 30; x++)
                         surface.Paint((x + 0.5f) / 31f, (y + 0.5f) / 21f,
-                            WashingTools.Radius(WashStage.Wet, 1f), WashStage.Wet);
+                            WashingTools.Radius(WashStage.Wet, 1f, 1.25f), WashStage.Wet);
                 if (surface.MinZoneProgress(WashStage.Wet) < WashSurface.ZoneFinish)
                 {
                     _report.Add("FAIL full coverage did not finish a stage");
@@ -212,6 +214,324 @@ namespace LittleCarWashBuild
                 _report.Add("FAIL exception: " + e);
                 return false;
             }
+        }
+
+        private struct StateSample
+        {
+            public string Name;
+            public float R, G, B, A;
+        }
+
+        private static WashSurface BuildSurface(CarKind kind, float scale, out Color32[] car,
+            out byte[] panelMask)
+        {
+            car = CarArt.Render(kind, new Color32(72, 156, 255, 255),
+                new Color32(255, 208, 74, 255), scale, 384, 256, out panelMask);
+            var surface = new WashSurface(car, 384, 256, 0.9f, 17, DirtKind.Mud, panelMask);
+            surface.Upload();
+            return surface;
+        }
+
+        private static bool CheckMechanicsAndStates()
+        {
+            try
+            {
+                // A - boundaries follow the real paint mask, not sprite alpha.
+                var kinds = new[] { CarKind.Sedan, CarKind.Sports, CarKind.Bus };
+                for (int k = 0; k < kinds.Length; k++)
+                {
+                    Color32[] carA;
+                    byte[] maskA;
+                    var surfaceA = BuildSurface(kinds[k], 1f, out carA, out maskA);
+                    Rect bounds = surfaceA.BodyBounds;
+                    if (bounds.width < 0.35f || bounds.height < 0.25f ||
+                        bounds.xMin < 0f || bounds.yMin < 0f || bounds.xMax > 1f || bounds.yMax > 1f)
+                    {
+                        _report.Add("FAIL A body bounds for " + kinds[k]);
+                        return false;
+                    }
+                    Vector2 panelUv, detailUv;
+                    if (!FindMaskSamples(maskA, out panelUv, out detailUv) ||
+                        !surfaceA.IsPaintable(panelUv.x, panelUv.y) ||
+                        surfaceA.IsPaintable(detailUv.x, detailUv.y))
+                    {
+                        _report.Add("FAIL A panel/detail hit test for " + kinds[k]);
+                        return false;
+                    }
+                    float before = surfaceA.Progress(WashStage.Wet);
+                    surfaceA.Paint(0.01f, 0.01f, 0.12f, WashStage.Wet);
+                    surfaceA.Upload();
+                    if (Math.Abs(surfaceA.Progress(WashStage.Wet) - before) > 0.0001f)
+                    {
+                        _report.Add("FAIL A off-body stroke changed progress for " + kinds[k]);
+                        return false;
+                    }
+                }
+                _report.Add("PASS A boundaries: panel mask excludes glass/wheels/lamps");
+
+                // B - radius is 25% larger by default, configurable, clamped and
+                // interpolated so a fast swipe leaves no gaps.
+                float baseline = WashingTools.Radius(WashStage.Wet, 1f, 1f);
+                float increased = WashingTools.Radius(WashStage.Wet, 1f, 1.25f);
+                float ratio = increased / baseline;
+                if (Mathf.Abs(ratio - 1.25f) > 0.001f ||
+                    Mathf.Abs(WashingTools.Radius(WashStage.Wet, 1f, 0.1f) / baseline - 0.8f) > 0.001f ||
+                    Mathf.Abs(WashingTools.Radius(WashStage.Wet, 1f, 9f) / baseline - 1.6f) > 0.001f ||
+                    WashingTools.Radius(WashStage.Wet, 0.74f, 1.25f) >= increased)
+                {
+                    _report.Add("FAIL B radius ratio/clamp/scale: " + ratio.ToString("F3"));
+                    return false;
+                }
+                Color32[] ignored;
+                byte[] ignoredMask;
+                var line = BuildSurface(CarKind.Sedan, 1f, out ignored, out ignoredMask);
+                var stamps = BuildSurface(CarKind.Sedan, 1f, out ignored, out ignoredMask);
+                float brush = increased;
+                line.PaintLine(0.08f, 0.32f, 0.92f, 0.32f, brush, WashStage.Wet);
+                for (int i = 0; i <= 80; i++)
+                    stamps.Paint(Mathf.Lerp(0.08f, 0.92f, i / 80f), 0.32f, brush, WashStage.Wet);
+                stamps.Upload();
+                if (line.Progress(WashStage.Wet) < stamps.Progress(WashStage.Wet) * 0.75f)
+                {
+                    _report.Add("FAIL B interpolated stroke left gaps");
+                    return false;
+                }
+                _report.Add("PASS B radius +25%, clamped 0.8-1.6, adaptive, gap-free");
+
+                // Smooth completion must be gradual, not an instant texture swap.
+                var completion = BuildSurface(CarKind.Sedan, 1f, out ignored, out ignoredMask);
+                completion.BeginCompletion(WashStage.Wet);
+                completion.AdvanceCompletion(0.5f);
+                float half = completion.Progress(WashStage.Wet);
+                completion.AdvanceCompletion(1f);
+                float done = completion.Progress(WashStage.Wet);
+                if (half <= 0f || half >= 0.999f || done < 0.999f)
+                {
+                    _report.Add("FAIL smooth stage completion half=" + half.ToString("F3") +
+                                " done=" + done.ToString("F3"));
+                    return false;
+                }
+                _report.Add("PASS smooth completion: " + half.ToString("F2") + " -> " + done.ToString("F2"));
+
+                // C-F - generate the nine required state images from the exact
+                // overlay pixels that are uploaded to the car texture, then
+                // compare them numerically so a parameter-only change cannot
+                // be mistaken for a visible difference.
+                Color32[] car;
+                byte[] panelMask;
+                var surface = BuildSurface(CarKind.Sedan, 1f, out car, out panelMask);
+                var samples = new List<StateSample>();
+                AddState(samples, "State_01_DryDirty", surface, car);
+                PaintFraction(surface, WashStage.Wet, 0.45f);
+                AddState(samples, "State_02_PartialWet", surface, car);
+                Swipe(surface, WashStage.Wet);
+                surface.FillCurrent(WashStage.Wet);
+                AddState(samples, "State_03_FullWet", surface, car);
+                PaintFraction(surface, WashStage.Foam, 0.45f);
+                AddState(samples, "State_04_PartialFoam", surface, car);
+                Swipe(surface, WashStage.Foam);
+                surface.FillCurrent(WashStage.Foam);
+                AddState(samples, "State_05_FullFoam", surface, car);
+                PaintFraction(surface, WashStage.Scrub, 0.45f);
+                AddState(samples, "State_06_PartialScrub", surface, car);
+                Swipe(surface, WashStage.Rinse);
+                surface.FillCurrent(WashStage.Rinse);
+                AddState(samples, "State_07_CleanWet", surface, car);
+                PaintFraction(surface, WashStage.Dry, 0.45f);
+                AddState(samples, "State_08_PartialDry", surface, car);
+                Swipe(surface, WashStage.Dry);
+                surface.FillCurrent(WashStage.Dry);
+                surface.FinishAll();
+                surface.BeginFinalShine();
+                surface.AdvanceFinalShine(0.5f);
+                AddState(samples, "State_09_DryShiny", surface, car);
+                surface.EndFinalShine();
+
+                StateSample dry = samples[0], wet = samples[2], foam = samples[4],
+                    rinse = samples[6], polished = samples[8];
+                if (wet.B <= dry.B + 3f)
+                {
+                    _report.Add("FAIL C wetting is not visibly darker/cooler");
+                    return false;
+                }
+                _report.Add("PASS C wetting changes dry matte dirt into dark glossy water");
+                if (foam.R <= wet.R + 20f || foam.A <= wet.A)
+                {
+                    _report.Add("FAIL D foam is not visibly brighter than wet paint");
+                    return false;
+                }
+                _report.Add("PASS D foam is visibly distinct from wet paint");
+                if (rinse.A < 40f || rinse.B <= rinse.R)
+                {
+                    _report.Add("FAIL E rinse left no clean wet film");
+                    return false;
+                }
+                _report.Add("PASS E sponge/rinse clear foam but keep a clean wet film");
+                if (polished.R > 248f || polished.G > 248f || polished.B > 248f || polished.A < 40f)
+                {
+                    _report.Add("FAIL F dried paint is overbright or invisible");
+                    return false;
+                }
+                _report.Add("PASS F drying ends polished, not white, with one shine sweep");
+                for (int i = 1; i < samples.Count; i++)
+                {
+                    StateSample a = samples[i - 1], b = samples[i];
+                    float delta = Mathf.Abs(a.R - b.R) + Mathf.Abs(a.G - b.G) +
+                                  Mathf.Abs(a.B - b.B);
+                    if (delta < 4f)
+                    {
+                        _report.Add("FAIL visual states identical: " + a.Name + " / " + b.Name);
+                        return false;
+                    }
+                }
+                _report.Add("PASS nine visual states are screenshots and visibly different");
+
+                // G - all three car families and their real scales remain
+                // washable with the same stage threshold and adaptive brush.
+                float[] scales = { 0.74f, 0.82f, 1f };
+                for (int i = 0; i < kinds.Length; i++)
+                {
+                    var family = BuildSurface(kinds[i], scales[i], out car, out panelMask);
+                    int panels = 0;
+                    for (int p = 0; p < panelMask.Length; p++) if (panelMask[p] == 255) panels++;
+                    if (panels < 4000 || family.VisiblePixelCount() < 6000)
+                    {
+                        _report.Add("FAIL G no washable paint on " + kinds[i]);
+                        return false;
+                    }
+                    WashStage[] familyStages = GameData.StagesFor(5);
+                    for (int s = 0; s < familyStages.Length; s++)
+                    {
+                        Swipe(family, familyStages[s]);
+                        if (family.MinZoneProgress(familyStages[s]) < WashSurface.ZoneFinish)
+                        {
+                            _report.Add("FAIL G " + kinds[i] + " cannot finish " + familyStages[s]);
+                            return false;
+                        }
+                    }
+                }
+                _report.Add("PASS G sedan, sports car and large vehicle wash correctly");
+                return true;
+            }
+            catch (Exception e)
+            {
+                _report.Add("FAIL mechanics/states exception: " + e);
+                return false;
+            }
+        }
+
+        private static bool FindMaskSamples(byte[] mask, out Vector2 panelUv, out Vector2 detailUv)
+        {
+            panelUv = detailUv = Vector2.zero;
+            bool foundPanel = false, foundDetail = false;
+            for (int y = 2; y < 254 && !(foundPanel && foundDetail); y++)
+            {
+                for (int x = 2; x < 382; x++)
+                {
+                    int i = y * 384 + x;
+                    if (!foundPanel && IsRegion(mask, x, y, 255))
+                    {
+                        panelUv = new Vector2((x + 0.5f) / 384f, (y + 0.5f) / 256f);
+                        foundPanel = true;
+                    }
+                    if (!foundDetail && IsRegion(mask, x, y, 0))
+                    {
+                        detailUv = new Vector2((x + 0.5f) / 384f, (y + 0.5f) / 256f);
+                        foundDetail = true;
+                    }
+                    if (foundPanel && foundDetail) break;
+                }
+            }
+            return foundPanel && foundDetail;
+        }
+
+        private static bool IsRegion(byte[] mask, int x, int y, byte value)
+        {
+            for (int oy = -1; oy <= 1; oy++)
+                for (int ox = -1; ox <= 1; ox++)
+                    if (mask[(y + oy) * 384 + x + ox] != value) return false;
+            return true;
+        }
+
+        private static void AddState(List<StateSample> samples, string name, WashSurface surface,
+            Color32[] car)
+        {
+            StateSample sample = SampleState(name, surface);
+            samples.Add(sample);
+            WriteStatePng(name, car, surface);
+        }
+
+        private static StateSample SampleState(string name, WashSurface surface)
+        {
+            var sample = new StateSample { Name = name };
+            int count = 0;
+            for (int y = 0; y < WashSurface.H; y++)
+            {
+                for (int x = 0; x < WashSurface.W; x++)
+                {
+                    Color32 p = surface.OverlayPixel(x, y);
+                    if (p.a < 96) continue;
+                    sample.R += p.r;
+                    sample.G += p.g;
+                    sample.B += p.b;
+                    sample.A += p.a;
+                    count++;
+                }
+            }
+            if (count == 0) throw new Exception("No visible overlay in " + name);
+            sample.R /= count;
+            sample.G /= count;
+            sample.B /= count;
+            sample.A /= count;
+            _report.Add("STATE " + name + " rgb=" + sample.R.ToString("F1") + "," +
+                        sample.G.ToString("F1") + "," + sample.B.ToString("F1") +
+                        " a=" + sample.A.ToString("F1"));
+            return sample;
+        }
+
+        private static void WriteStatePng(string name, Color32[] car, WashSurface surface)
+        {
+            var pixels = new Color32[WashSurface.W * WashSurface.H];
+            for (int y = 0; y < WashSurface.H; y++)
+            {
+                for (int x = 0; x < WashSurface.W; x++)
+                {
+                    int i = y * WashSurface.W + x;
+                    Color32 o = surface.OverlayPixel(x, y);
+                    Color32 c = car[i];
+                    float a = o.a / 255f;
+                    pixels[i] = new Color32(
+                        (byte)Mathf.Clamp(o.r * a + c.r * (1f - a), 0f, 255f),
+                        (byte)Mathf.Clamp(o.g * a + c.g * (1f - a), 0f, 255f),
+                        (byte)Mathf.Clamp(o.b * a + c.b * (1f - a), 0f, 255f), 255);
+                }
+            }
+            var texture = new Texture2D(WashSurface.W, WashSurface.H, TextureFormat.RGBA32, false);
+            texture.SetPixels32(pixels);
+            texture.Apply(false, false);
+            File.WriteAllBytes(Path.Combine(_output, name + ".png"), texture.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(texture);
+        }
+
+        private static void Swipe(WashSurface surface, WashStage stage)
+        {
+            for (int y = 0; y <= 20; y++)
+                for (int x = 0; x <= 30; x++)
+                    surface.Paint((x + 0.5f) / 31f, (y + 0.5f) / 21f,
+                        WashingTools.Radius(stage, 1f, 1.25f), stage);
+            surface.Upload();
+        }
+
+        private static void PaintFraction(WashSurface surface, WashStage stage, float fraction)
+        {
+            float radius = WashingTools.Radius(stage, 1f, 1.25f);
+            int columns = Mathf.Max(1, Mathf.CeilToInt(1f / (radius * 0.85f)));
+            int rows = Mathf.Max(1, Mathf.CeilToInt(1f / (radius * 1.25f)));
+            int limit = Mathf.Max(1, Mathf.RoundToInt(columns * fraction));
+            for (int y = 0; y <= rows; y++)
+                for (int x = 0; x <= limit; x++)
+                    surface.Paint((x + 0.5f) / (columns + 1f), (y + 0.5f) / (rows + 1f), radius, stage);
+            surface.Upload();
         }
 
         private static void OnPlayModeChanged(PlayModeStateChange state)
@@ -479,7 +799,7 @@ namespace LittleCarWashBuild
                 Finish(false, "wash surface missing");
                 return;
             }
-            float radius = WashingTools.Radius(stage, 1f);
+            float radius = WashingTools.Radius(stage, 1f, 1.25f);
             int columns = Mathf.Max(1, Mathf.CeilToInt(1f / (radius * 0.85f)));
             int rows = Mathf.Max(1, Mathf.CeilToInt(1f / (radius * 1.25f)));
             int limit = Mathf.Max(1, Mathf.RoundToInt(columns * fraction));
