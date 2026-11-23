@@ -31,15 +31,31 @@ There is no timer pressure and no way to fail: once about 60% of the car is swip
 
 `.github/workflows/build.yml` builds **Android** and **StandaloneWindows64** on every `push` and can also be started manually from the Actions tab. Artifacts are uploaded as `LittleCarWash-Android` and `LittleCarWash-StandaloneWindows64`.
 
-Unity requires a licence in CI. Add these repository secrets (**Settings → Secrets and variables → Actions → New repository secret**):
+Unity requires an activated licence in CI. The first build fails with **`Missing Unity License File and no Serial was found`** until you add one of these secret sets (**Settings → Secrets and variables → Actions → New repository secret**).
 
-| Secret | Value |
-| --- | --- |
-| `UNITY_LICENSE` | Base64 text of your Unity `.ulf` licence file (recommended) |
-| `UNITY_EMAIL` | Unity account e-mail (alternative/activation) |
-| `UNITY_PASSWORD` | Unity account password (alternative/activation) |
+### Free Unity Personal licence (most people)
 
-To get `UNITY_LICENSE`: activate a free Unity Personal licence in Unity Hub, find the generated `Unity_v20xx.x.ulf` file in the Hub configuration folder, then run `base64 -w0 Unity_v20xx.x.ulf` (macOS: `base64 -i Unity_v20xx.x.ulf`) and paste the result as the secret value. The workflow uses [`game-ci/unity-builder`](https://github.com/game-ci/unity-builder).
+1. Install **Unity Hub** (free) and sign in with your Unity account. Hub is only needed to create the licence file — you still do not need Unity/Hub to *play* the built game.
+2. In Hub open **Preferences → Licenses → Add → Get a free personal license** and complete activation.
+3. Copy the licence file from:
+   - Windows: `C:\ProgramData\Unity\Unity_lic.ulf`
+   - macOS: `/Library/Application Support/Unity/Unity_lic.ulf`
+   - Linux: `~/.local/share/unity3d/Unity/Unity_lic.ulf`
+4. Open `Unity_lic.ulf` in Notepad, select all, and paste the **whole XML contents** into the `UNITY_LICENSE` secret. Add your Unity account as `UNITY_EMAIL` and `UNITY_PASSWORD` too.
+5. **Sign out of Unity Hub** after copying the file. On recent Hub versions signing out returns the Personal seat so the CI build can use it.
+6. Re-run the workflow (**Actions → Build… → Re-run all jobs**).
+
+If GitHub has trouble storing the multi-line XML, use base64 instead — in PowerShell:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\ProgramData\Unity\Unity_lic.ulf")) | Set-Clipboard
+```
+
+### Unity Plus / Pro licence
+
+Add `UNITY_SERIAL` (your serial, e.g. `XX-XXXX-XXXX-XXXX-XXXX-XXXX`), `UNITY_EMAIL` and `UNITY_PASSWORD`.
+
+The workflow uses [`game-ci/unity-builder`](https://github.com/game-ci/unity-builder). A log line like **`Warning: Library folder does not exist`** is normal on the first run — Unity creates `Library/` during the build, and the cache step reuses it on later runs.
 
 Artifacts:
 
