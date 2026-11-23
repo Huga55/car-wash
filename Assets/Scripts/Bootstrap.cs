@@ -40,6 +40,12 @@ public sealed class Bootstrap : MonoBehaviour
         audio.playOnAwake = false;
         AudioManager.Init(audio);
 
+        // UpdateChecker lives on its own object: GameController stops all of
+        // its own coroutines on every screen change, which must not cancel a
+        // running version check or download.
+        if (FindObjectOfType<UpdateChecker>() == null)
+            new GameObject("UpdateChecker").AddComponent<UpdateChecker>();
+
         if (FindObjectOfType<GameController>() == null)
             new GameObject("GameController").AddComponent<GameController>();
     }

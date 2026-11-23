@@ -74,7 +74,9 @@ namespace LittleCarWashBuild
 
             PlayerSettings.companyName = "Little Car Wash";
             PlayerSettings.productName = "Little Car Wash";
-            PlayerSettings.bundleVersion = "1.0";
+            // Keep the installed app version identical to the version that CI
+            // writes into update.json; otherwise the updater can never compare.
+            PlayerSettings.bundleVersion = AppInfo.Version;
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
             PlayerSettings.allowedAutorotateToLandscapeLeft = true;
             PlayerSettings.allowedAutorotateToLandscapeRight = true;
@@ -91,7 +93,7 @@ namespace LittleCarWashBuild
             PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.littlecarwash.game");
             PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel22;
-            PlayerSettings.Android.bundleVersionCode = 1;
+            PlayerSettings.Android.bundleVersionCode = AppInfo.VersionCode;
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64 | AndroidArchitecture.ARMv7;
         }
 

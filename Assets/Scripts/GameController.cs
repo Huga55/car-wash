@@ -47,6 +47,22 @@ public sealed class GameController : MonoBehaviour
     private Image _preview;
     private readonly List<Text> _soundLabels = new List<Text>();
 
+    // Auto update: a silent check on launch and an explicit Russian dialog.
+    private UpdateChecker _updates;
+    private Button _updateButton;
+    private Text _updateButtonLabel;
+    private GameObject _updatePanel;
+    private Text _updateTitle;
+    private Text _updateVersion;
+    private Text _updateNotes;
+    private Text _updateStatus;
+    private Image _updateProgressFill;
+    private Button _updateInstallButton;
+    private UpdateInfo _pendingUpdate;
+    private string _updateMessage;
+    private bool _autoChecked;
+    private bool _manualCheck;
+
     private Image _cardPanel;
     private Image _cardCar;
     private Image _cardLock;
@@ -113,6 +129,14 @@ public sealed class GameController : MonoBehaviour
         BuildUi();
         ApplySafeArea();
         ShowHome();
+
+        _updates = FindObjectOfType<UpdateChecker>();
+        if (_updates != null)
+        {
+            _updates.Checked += OnUpdateChecked;
+            _updates.Progress += OnUpdateProgress;
+            _updates.Installed += OnUpdateInstalled;
+        }
     }
 
     private void Update()
@@ -124,6 +148,15 @@ public sealed class GameController : MonoBehaviour
         AnimateFlash();
         HandleSystemKey();
         AnimateConfetti(time);
+
+        // Silent launch check: only tells the child something when a newer
+        // release actually exists. Manual checks always show a result dialog.
+        if (!_autoChecked && !Application.isEditor && _screen == ScreenId.Home && time > 2f &&
+            Application.internetReachability != NetworkReachability.NotReachable)
+        {
+            _autoChecked = true;
+            if (_updates != null && !_updates.Busy) _updates.Check();
+        }
 
         if (_screen != ScreenId.Play || _paused || _exitOpen || _transitioning ||
             _rewarding || _completeCard.activeSelf)
@@ -181,6 +214,7 @@ public sealed class GameController : MonoBehaviour
         BuildPause();
         BuildExitDialog();
         BuildCompleteCard();
+        BuildUpdateDialog();
     }
 
     private GameObject Panel(string name)
@@ -216,6 +250,16 @@ public sealed class GameController : MonoBehaviour
             delegate { StartLevel(ProgressManager.UnlockedLevel); });
         UiFactory.Button(_homePanel.transform, "CarsButton", Loc.T(Loc.Cars), Steel, 38,
             new Vector2(360f, 82f), new Vector2(0f, -300f), ShowLevels);
+
+        // Top-left: clear of the logo, tagline, car preview and the big buttons.
+        _updateButton = UiFactory.Button(_homePanel.transform, "UpdateButton",
+            Loc.T(Loc.UpdateCheck), Graphite, 20, new Vector2(250f, 66f),
+            new Vector2(135f, -210f), OnUpdateButtonClicked);
+        var updateRect = _updateButton.GetComponent<RectTransform>();
+        updateRect.anchorMin = new Vector2(0f, 1f);
+        updateRect.anchorMax = new Vector2(0f, 1f);
+        updateRect.anchoredPosition = new Vector2(135f, -210f);
+        _updateButtonLabel = _updateButton.GetComponentInChildren<Text>();
 
         AddSoundButton(_homePanel.transform, new Vector2(1f, 1f), new Vector2(-135f, -62f),
             new Vector2(190f, 66f));
@@ -465,6 +509,42 @@ public sealed class GameController : MonoBehaviour
     private Image _cleanCar;
     private Button _nextButton;
 
+    private void BuildUpdateDialog()
+    {
+        _updatePanel = Panel("UpdateDialog");
+        var dim = UiFactory.StretchImage(_updatePanel.transform, "Dim", new Color(0f, 0f, 0f, 0.62f));
+        dim.raycastTarget = true;
+        UiFactory.CenteredImage(_updatePanel.transform, "Card", Pale, new Vector2(760f, 470f),
+            Vector2.zero, UiFactory.RoundSprite, true);
+
+        _updateTitle = UiFactory.CenteredLabel(_updatePanel.transform, "Title",
+            Loc.T(Loc.UpdateTitle), 42, Ink, new Vector2(660f, 66f), new Vector2(0f, 188f));
+        _updateVersion = UiFactory.CenteredLabel(_updatePanel.transform, "Version", "", 26, Steel,
+            new Vector2(660f, 46f), new Vector2(0f, 134f));
+        _updateNotes = UiFactory.CenteredLabel(_updatePanel.transform, "Notes", "", 24, Ink,
+            new Vector2(660f, 150f), new Vector2(0f, 28f));
+        _updateStatus = UiFactory.CenteredLabel(_updatePanel.transform, "Status", "", 22, Ink,
+            new Vector2(660f, 40f), new Vector2(0f, -70f));
+
+        UiFactory.CenteredImage(_updatePanel.transform, "ProgressBack", new Color32(58, 78, 104, 210),
+            new Vector2(580f, 16f), new Vector2(0f, -102f), UiFactory.SoftSprite, true);
+        _updateProgressFill = UiFactory.Image(_updatePanel.transform, "ProgressFill", Teal,
+            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(580f, 14f),
+            new Vector2(-290f, -102f), UiFactory.SoftSprite, true);
+        _updateProgressFill.rectTransform.pivot = new Vector2(0f, 0.5f);
+        _updateProgressFill.rectTransform.localScale = new Vector3(0.001f, 1f, 1f);
+
+        _updateInstallButton = UiFactory.Button(_updatePanel.transform, "Install",
+            Loc.T(Loc.UpdateInstall), Teal, 30, new Vector2(270f, 66f),
+            new Vector2(-155f, -148f), OnInstallConfirmed);
+        UiFactory.Button(_updatePanel.transform, "Later", Loc.T(Loc.UpdateLater), Graphite, 30,
+            new Vector2(270f, 66f), new Vector2(155f, -148f), CloseUpdateDialog);
+        UiFactory.Button(_updatePanel.transform, "OpenReleases", Loc.T(Loc.UpdateOpenPage), Steel, 22,
+            new Vector2(300f, 44f), new Vector2(0f, -205f), OpenReleasesPage);
+
+        _updatePanel.SetActive(false);
+    }
+
     private void AddSoundButton(Transform parent, Vector2 anchor, Vector2 position, Vector2 size)
     {
         var button = UiFactory.Button(parent, "SoundButton", "", Graphite, 24, size, position, ToggleSound);
@@ -473,6 +553,136 @@ public sealed class GameController : MonoBehaviour
         rect.anchorMax = anchor;
         rect.anchoredPosition = position;
         _soundLabels.Add(button.GetComponentInChildren<Text>());
+    }
+
+    // ---------------------------------------------------------- auto update
+
+    private void SetUpdateLabel(string text, bool enabled)
+    {
+        if (_updateButtonLabel != null) _updateButtonLabel.text = text;
+        if (_updateButton != null) _updateButton.interactable = enabled;
+    }
+
+    private void OnUpdateButtonClicked()
+    {
+        AudioManager.Play("click");
+        if (_pendingUpdate != null && UpdateService.IsNewer(_pendingUpdate))
+        {
+            _updateMessage = null;
+            ShowUpdateDialog();
+            return;
+        }
+        if (_updates == null || _updates.Busy) return;
+        _manualCheck = true;
+        SetUpdateLabel(Loc.T(Loc.UpdateChecking), false);
+        _updates.Check();
+    }
+
+    private void OnUpdateChecked(UpdateInfo info, string error)
+    {
+        bool manual = _manualCheck;
+        _manualCheck = false;
+
+        if (!string.IsNullOrEmpty(error) || info == null)
+        {
+            _pendingUpdate = null;
+            _updateMessage = Loc.T(Loc.UpdateCheckError);
+            if (manual) SetUpdateLabel(Loc.T(Loc.UpdateError), true);
+        }
+        else if (UpdateService.IsNewer(info))
+        {
+            _pendingUpdate = info;
+            _updateMessage = null;
+            SetUpdateLabel(Loc.T(Loc.UpdateAvailable), true);
+        }
+        else
+        {
+            _pendingUpdate = null;
+            _updateMessage = Loc.T(Loc.UpdateNoNeed);
+            if (manual) SetUpdateLabel(Loc.T(Loc.UpdateLatest), false);
+        }
+
+        if (manual) ShowUpdateDialog();
+        else if (_updatePanel.activeSelf) UpdateUpdateDialog();
+    }
+
+    private void ShowUpdateDialog()
+    {
+        UpdateUpdateDialog();
+        _updatePanel.SetActive(true);
+    }
+
+    private void UpdateUpdateDialog()
+    {
+        if (_updateTitle != null) _updateTitle.text = Loc.T(Loc.UpdateTitle);
+        if (_updateVersion != null)
+        {
+            _updateVersion.text = _pendingUpdate != null && UpdateService.IsNewer(_pendingUpdate)
+                ? string.Format(Loc.T(Loc.UpdateVersion), _pendingUpdate.version)
+                : "Little Car Wash " + AppInfo.Version;
+        }
+        if (_updateNotes != null)
+        {
+            _updateNotes.text = _pendingUpdate != null && !string.IsNullOrEmpty(_pendingUpdate.notes)
+                ? _pendingUpdate.notes
+                : Loc.T(Loc.UpdateNoNeed);
+        }
+        if (_updateStatus != null) _updateStatus.text = _updateMessage ?? string.Empty;
+        if (_updateInstallButton != null)
+            _updateInstallButton.interactable = _pendingUpdate != null &&
+                                                UpdateService.IsNewer(_pendingUpdate) &&
+                                                (_updates == null || !_updates.Busy);
+        if (_updateProgressFill != null) _updateProgressFill.gameObject.SetActive(_pendingUpdate != null);
+    }
+
+    private void CloseUpdateDialog()
+    {
+        _updatePanel.SetActive(false);
+    }
+
+    private void OpenReleasesPage()
+    {
+        Application.openURL(AppInfo.ReleasesPageUrl);
+    }
+
+    private void OnInstallConfirmed()
+    {
+        if (_pendingUpdate == null || _updates == null || _updates.Busy) return;
+        _updateMessage = Loc.T(Loc.UpdateDownloading);
+        if (_updateStatus != null) _updateStatus.text = _updateMessage;
+        if (_updateInstallButton != null) _updateInstallButton.interactable = false;
+        if (_updateProgressFill != null) _updateProgressFill.rectTransform.localScale = new Vector3(0.001f, 1f, 1f);
+        _updates.Install(_pendingUpdate);
+    }
+
+    private void OnUpdateProgress(float value)
+    {
+        if (_updateProgressFill != null)
+            _updateProgressFill.rectTransform.localScale = new Vector3(Mathf.Clamp01(value), 1f, 1f);
+    }
+
+    private void OnUpdateInstalled(bool openedBrowser, string error)
+    {
+        if (openedBrowser)
+        {
+            _updateMessage = Loc.T(Loc.UpdateBrowserHint);
+        }
+        else if (string.IsNullOrEmpty(error))
+        {
+            // Windows: the batch started by UpdateService replaces the files
+            // after this process exits and launches the new build itself.
+            Application.Quit();
+            return;
+        }
+        else
+        {
+            _updateMessage = error == "PLATFORM_UNAVAILABLE"
+                ? Loc.T(Loc.UpdatePlatformError)
+                : Loc.T(Loc.UpdateInstallError);
+        }
+
+        if (_updateStatus != null) _updateStatus.text = _updateMessage;
+        if (_updateInstallButton != null) _updateInstallButton.interactable = true;
     }
 
     private void ApplySafeArea()
@@ -496,6 +706,7 @@ public sealed class GameController : MonoBehaviour
         _playPanel.SetActive(false);
         _pausePanel.SetActive(false);
         _exitPanel.SetActive(false);
+        if (_updatePanel != null) _updatePanel.SetActive(false);
         _paused = false;
         _exitOpen = false;
         _rewarding = false;
@@ -515,6 +726,7 @@ public sealed class GameController : MonoBehaviour
         _playPanel.SetActive(false);
         _pausePanel.SetActive(false);
         _exitPanel.SetActive(false);
+        if (_updatePanel != null) _updatePanel.SetActive(false);
         _paused = false;
         _exitOpen = false;
         Time.timeScale = 1f;
@@ -542,6 +754,7 @@ public sealed class GameController : MonoBehaviour
         _levelsPanel.SetActive(false);
         _playPanel.SetActive(true);
         _pausePanel.SetActive(false);
+        if (_updatePanel != null) _updatePanel.SetActive(false);
         _exitPanel.SetActive(false);
         _paused = false;
         _exitOpen = false;
@@ -1103,6 +1316,12 @@ public sealed class GameController : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (_updates != null)
+        {
+            _updates.Checked -= OnUpdateChecked;
+            _updates.Progress -= OnUpdateProgress;
+            _updates.Installed -= OnUpdateInstalled;
+        }
         Time.timeScale = 1f;
         ReleaseLevel();
         ReleaseCard();

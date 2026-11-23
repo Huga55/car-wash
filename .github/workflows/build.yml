@@ -88,3 +88,72 @@ jobs:
           path: build
           if-no-files-found: error
           retention-days: 30
+
+  release:
+    name: Publish in-app update manifest
+    needs: [verify, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Assemble release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/.*public const string Version = "\([^"]*\)".*/\1/p' Assets/Scripts/AppInfo.cs | head -n 1)
+          VERSION_CODE=$(sed -n 's/.*public const int VersionCode = \([0-9]*\).*/\1/p' Assets/Scripts/AppInfo.cs | head -n 1)
+          NOTES=$(git log -1 --pretty=%s)
+          if [ -z "$VERSION" ] || [ -z "$VERSION_CODE" ]; then
+            echo "Cannot read AppInfo version" >&2
+            exit 1
+          fi
+          APK=$(find release-artifacts -type f -iname '*.apk' | head -n 1)
+          EXE=$(find release-artifacts -type f -iname '*car*wash*.exe' | head -n 1)
+          if [ -z "$EXE" ]; then
+            EXE=$(find release-artifacts -type f -iname '*.exe' ! -iname '*crash*' | head -n 1)
+          fi
+          if [ -z "$APK" ] || [ -z "$EXE" ]; then
+            echo "Missing APK or Windows executable in build artifacts" >&2
+            find release-artifacts -type f | head -n 50 >&2
+            exit 1
+          fi
+          mkdir -p release
+          cp "$APK" release/LittleCarWash-android.apk
+          WIN_DIR=$(dirname "$EXE")
+          (cd "$WIN_DIR" && zip -q -r "$GITHUB_WORKSPACE/release/LittleCarWash-windows.zip" .)
+          jq -n \
+            --arg version "$VERSION" \
+            --argjson code "$VERSION_CODE" \
+            --arg notes "$NOTES" \
+            --arg repo "$GITHUB_REPOSITORY" \
+            '{version: $version, versionCode: $code, notes: $notes,
+              androidUrl: ("https://github.com/" + $repo + "/releases/latest/download/LittleCarWash-android.apk"),
+              windowsUrl: ("https://github.com/" + $repo + "/releases/latest/download/LittleCarWash-windows.zip")}' \
+            > release/update.json
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "NOTES=$NOTES" >> "$GITHUB_ENV"
+          cat release/update.json
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Little Car Wash ${{ env.VERSION }}
+          body: ${{ env.NOTES }}
+          draft: false
+          prerelease: false
+          files: |
+            release/update.json
+            release/LittleCarWash-android.apk
+            release/LittleCarWash-windows.zip

@@ -40,8 +40,11 @@
 | `Assets/Scripts/WashingController.cs` | ввод мышью/тачем, интерполяция штрихов |
 | `Assets/Scripts/CarViewController.cs` | положение машины, отклик на мойку, отъезд |
 | `Assets/Scripts/AnimalActor.cs` | портрет, реплика и движение животного |
+| `Assets/Scripts/AppInfo.cs` | версия игры и URL манифеста обновлений |
+| `Assets/Scripts/UpdateService.cs` | проверка версии, загрузка и установка обновления |
+| `Assets/Scripts/UpdateChecker.cs` | фоновые корутины обновления, независимые от экранов |
 | `Assets/Editor/VisualVerification.cs` | проверки и съёмка 11 обязательных моментов в CI |
-| `.github/workflows/build.yml` | `verify` → сборки Android и Windows |
+| `.github/workflows/build.yml` | `verify` → сборки → публикация релиза с `update.json` |
 
 ## Проверки и сборки
 
@@ -49,9 +52,20 @@ GitHub Actions при каждом push:
 
 1. запускает `LittleCarWashBuild.VisualVerification.Run` в Unity;
 2. сохраняет скриншоты и `verification.txt` в артефакте `VisualVerification`;
-3. только после успешной проверки (`needs: verify`) собирает Android и StandaloneWindows64.
+3. только после успешной проверки (`needs: verify`) собирает Android и StandaloneWindows64;
+4. при push в `master` публикует GitHub-релиз с APK, Windows-архивом и файлом `update.json`.
 
-Для сборок нужны секреты репозитория `UNITY_LICENSE`, `UNITY_SERIAL`, `UNITY_EMAIL`, `UNITY_PASSWORD`.
+Для сборок нужны секреты репозитория `UNITY_LICENSE`, `UNITY_SERIAL`, `UNITY_EMAIL`, `UNITY_PASSWORD`. Для публикации релиза workflow использует встроенный `GITHUB_TOKEN` с правом `contents: write`.
+
+## Автообновление
+
+- При запуске игра один раз тихо запрашивает `update.json` из последнего релиза GitHub. Если версия выше текущей, кнопка «ОБНОВЛЕНИЕ ДОСТУПНО» появляется на главном экране.
+- Кнопка «ПРОВЕРИТЬ ОБНОВЛЕНИЯ» позволяет проверить версию вручную и открыть окно с номером версии и описанием.
+- **Android:** обновление открывается в браузере — APK скачивается и устанавливается штатным диалогом системы.
+- **Windows:** игра скачивает zip-архив новой сборки, распаковывает его и запускает небольшой bat-файл, который дожидается выхода игры, копирует файлы и запускает обновлённую версию.
+- Окно обновления можно закрыть кнопкой «ПОЗЖЕ»; всегда доступна ссылка «ОТКРЫТЬ СТРАНИЦУ» на случай сбоя автоматической установки.
+
+Версия берётся из `AppInfo.Version` / `AppInfo.VersionCode`; CI записывает те же значения в `PlayerSettings` и в `update.json`. Пока релиз с манифестом не опубликован, приложение считает версию актуальной и не предлагает обновление.
 
 Локально в среде без Unity Editor можно повторить только офлайн-проверки (компиляция с stubs, smoke-тест механики, процедурные превью, геометрия UI). Они не заменяют Play Mode, реальные скриншоты и замеры FPS.
 

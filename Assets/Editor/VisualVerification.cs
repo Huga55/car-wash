@@ -166,6 +166,30 @@ namespace LittleCarWashBuild
                 }
                 _report.Add("PASS reward scene budget " + seconds.ToString("F1") + "s (no auto-skip)");
 
+                if (string.IsNullOrEmpty(AppInfo.Version) || AppInfo.VersionCode <= 0 ||
+                    !AppInfo.UpdateManifestUrl.StartsWith("https://"))
+                {
+                    _report.Add("FAIL auto-update manifest configuration");
+                    return false;
+                }
+                var newer = new UpdateInfo
+                {
+                    version = "99.0",
+                    versionCode = AppInfo.VersionCode + 1
+                };
+                var same = new UpdateInfo
+                {
+                    version = AppInfo.Version,
+                    versionCode = AppInfo.VersionCode
+                };
+                if (!UpdateService.IsNewer(newer) || UpdateService.IsNewer(same) ||
+                    string.IsNullOrEmpty(Loc.T(Loc.UpdateCheck)))
+                {
+                    _report.Add("FAIL auto-update version comparison or localization");
+                    return false;
+                }
+                _report.Add("PASS auto-update manifest and version comparison");
+
                 Vector2 reference = new Vector2(1200f, 800f);
                 foreach (int[] res in Resolutions)
                 {
@@ -224,6 +248,7 @@ namespace LittleCarWashBuild
                 if (_resolutionSettle == 0 && !string.IsNullOrEmpty(_pendingScreen))
                 {
                     Invoke(_pendingScreen);
+                    if (_finished) return;
                     int[] settled = Resolutions[_resolutionIndex];
                     Capture(string.Format("UI_{0}x{1}_{2}.png",
                         settled[0], settled[1], _pendingScreen));
@@ -494,7 +519,18 @@ namespace LittleCarWashBuild
 
         private static void Invoke(string screen)
         {
-            if (screen == "Home") Call("ShowHome");
+            if (screen == "Home")
+            {
+                Call("ShowHome");
+                var button = GetField("_updateButton") as UnityEngine.UI.Button;
+                var dialog = GetField("_updatePanel") as GameObject;
+                if (button == null || !button.gameObject.activeSelf || dialog == null || dialog.activeSelf)
+                {
+                    Finish(false, "home update button or update dialog is in the wrong state");
+                    return;
+                }
+                _report.Add("PASS home screen exposes the update check");
+            }
             else if (screen == "Levels") Call("ShowLevels");
             else if (screen == "Play") Call("StartLevel", 0);
             else if (screen == "Pause") Call("ShowPause");

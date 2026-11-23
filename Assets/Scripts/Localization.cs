@@ -47,6 +47,22 @@ public static class Loc
     public const string CarLabel = "car_label";
     public const string Washer = "washer";
     public const string Skip = "skip";
+    public const string UpdateCheck = "update_check";
+    public const string UpdateChecking = "update_checking";
+    public const string UpdateLatest = "update_latest";
+    public const string UpdateAvailable = "update_available";
+    public const string UpdateError = "update_error";
+    public const string UpdateTitle = "update_title";
+    public const string UpdateVersion = "update_version";
+    public const string UpdateNoNeed = "update_noneed";
+    public const string UpdateInstall = "update_install";
+    public const string UpdateLater = "update_later";
+    public const string UpdateDownloading = "update_downloading";
+    public const string UpdateBrowserHint = "update_browser_hint";
+    public const string UpdateCheckError = "update_check_error";
+    public const string UpdateInstallError = "update_install_error";
+    public const string UpdatePlatformError = "update_platform_error";
+    public const string UpdateOpenPage = "update_open_page";
 
     private static readonly Dictionary<GameLanguage, Dictionary<string, string>> Languages =
         new Dictionary<GameLanguage, Dictionary<string, string>>
@@ -89,7 +105,23 @@ public static class Loc
                     { Complete, "ЧИСТАЯ МАШИНКА" },
                     { CarLabel, "МАШИНКА" },
                     { Washer, "ЮНЫЙ МОЙЩИК" },
-                    { Skip, "ПРОПУСТИТЬ →" }
+                    { Skip, "ПРОПУСТИТЬ →" },
+                    { UpdateCheck, "ПРОВЕРИТЬ ОБНОВЛЕНИЯ" },
+                    { UpdateChecking, "ПРОВЕРКА..." },
+                    { UpdateLatest, "ВЕРСИЯ АКТУАЛЬНА" },
+                    { UpdateAvailable, "ОБНОВЛЕНИЕ ДОСТУПНО" },
+                    { UpdateError, "ПОВТОРИТЬ ПРОВЕРКУ" },
+                    { UpdateTitle, "ОБНОВЛЕНИЕ ИГРЫ" },
+                    { UpdateVersion, "Доступна версия {0}" },
+                    { UpdateNoNeed, "У тебя уже последняя версия игры." },
+                    { UpdateInstall, "ОБНОВИТЬ" },
+                    { UpdateLater, "ПОЗЖЕ" },
+                    { UpdateDownloading, "Загрузка обновления..." },
+                    { UpdateBrowserHint, "Откроется браузер. Нажми «Установить», чтобы обновить игру." },
+                    { UpdateCheckError, "Не удалось проверить обновление. Проверь интернет." },
+                    { UpdateInstallError, "Не получилось обновиться. Открой страницу выпуска в браузере." },
+                    { UpdatePlatformError, "Обновление для этой платформы пока недоступно." },
+                    { UpdateOpenPage, "ОТКРЫТЬ СТРАНИЦУ" }
                 }
             }
         };
