@@ -326,7 +326,7 @@ namespace LittleGarage
                 if (!hasBounds) { bounds = b; hasBounds = true; }
                 else bounds.Encapsulate(b);
             }
-            int canvases = Object.FindObjectsOfType<Canvas>(true).Length;
+            int canvases = UnityEngine.Object.FindObjectsOfType<Canvas>(true).Length;
             Debug.Log("[LittleGarage QA] vehicle=" + _car.name +
                 " renderers=" + activeRenderers + "/" + renderers.Length +
                 " colliders=" + colliders.Length +
