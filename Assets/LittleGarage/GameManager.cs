@@ -210,7 +210,25 @@ namespace LittleGarage
             if (TryHit(_lastPointerScreen, out hit))
                 PaintAt(_lastPointerScreen, hit, dt);
             else if (_camera != null && _stream != null)
-                _stream.Retarget(_camera.ScreenPointToRay(_lastPointerScreen).GetPoint(4f), Vector3.up);
+                _stream.Retarget(PointerRay(_lastPointerScreen).GetPoint(4f), Vector3.up);
+        }
+
+        /// <summary>
+        /// Builds a pointer ray in the camera's own screen space. Headless CI gives the
+        /// camera a render target while Unity's global Screen size stays empty; in that
+        /// case ScreenPointToRay interprets camera-sized coordinates against the wrong
+        /// dimensions and misses the car. Going through the camera's viewport keeps
+        /// WorldToScreenPoint and raycasts in the same coordinate system on real screens
+        /// and in batchmode.
+        /// </summary>
+        private Ray PointerRay(Vector2 screen)
+        {
+            if (_camera == null) return new Ray(Vector3.zero, Vector3.forward);
+            if (_camera.pixelWidth <= 0 || _camera.pixelHeight <= 0)
+                return _camera.ScreenPointToRay(screen);
+
+            Vector3 viewport = _camera.ScreenToViewportPoint(screen);
+            return _camera.ViewportPointToRay(viewport);
         }
 
         private TaskKind CurrentTaskKind()
@@ -827,7 +845,7 @@ namespace LittleGarage
         {
             if (_camera == null || _stream == null) return;
             WashTool tool = _washing != null ? _washing.CurrentTool : WashTool.Pressure;
-            Ray ray = _camera.ScreenPointToRay(screen);
+            Ray ray = PointerRay(screen);
             Vector3 point = ray.GetPoint(4f);
             Vector3 normal = Vector3.up;
 
@@ -851,7 +869,7 @@ namespace LittleGarage
             if (_camera == null) _camera = Camera.main;
             if (_camera == null || _car == null) return false;
 
-            Ray ray = _camera.ScreenPointToRay(screen);
+            Ray ray = PointerRay(screen);
             // Only registered paint meshes carry atlas UVs. Lights, bumpers and trim
             // colliders must not mutate the state texture with unrelated coordinates.
             MeshCollider[] paintColliders = _car.PaintColliders;
