@@ -28,10 +28,16 @@ jobs:
           UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          # unity-test-runner@v4 translates `coverageEnabled: false` into
+          # `--no-coverageEnabled`, but game-ci/cli sets yargs
+          # `negation-prefix: false`, so that flag is rejected as an unknown
+          # argument and the run exits 1 before Unity starts. The CLI's
+          # documented GAME_CI_* env mapping reaches the same option without
+          # emitting the broken flag.
+          GAME_CI_COVERAGE_ENABLED: 'false'
         with:
           unityVersion: 2022.3.61f1
           testMode: all
-          coverageEnabled: false
           artifactsPath: build/verification
 
       - name: Upload test results

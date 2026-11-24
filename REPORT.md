@@ -155,6 +155,31 @@ Unity API (namespace-level enum); после этого offline runtime build и
 
 ## 5. Editor tests (§5)
 
+### Раунд 3 — запуск CI test-runner (после исправлений компиляции)
+
+Третий лог в `prompt.txt` — уже не ошибки C#, а падение самого шага
+`game-ci/unity-test-runner@v4`:
+
+```
+game-ci test ... --no-coverageEnabled --coverageOptions=... --artifactsPath=build/verification ...
+[WARN] Unknown argument: noCoverageEnabled
+Error: Test run failed with exit code 1
+```
+
+**Root cause:** `unity-test-runner@v4` превращает входной параметр `coverageEnabled: false` в флаг
+`--no-coverageEnabled`, но `game-ci/cli v0.1.77` включает yargs `negation-prefix: false`.
+Флаг не распознаётся, strict-парсер выходит с кодом 1 **до запуска Unity** — тесты ещё не
+выполнялись, поэтому это не «тесты упали», а ошибка конфигурации CI.
+
+**Fix (применён):** в `.github/workflows/build.yml` входной параметр `coverageEnabled: false` удалён;
+вместо него выставлен `GAME_CI_COVERAGE_ENABLED: 'false'` — задокументированный CLI-путь
+`GAME_CI_<SCREAMING_SNAKE_CASE>` (проверен по исходникам CLI: `camelCase` даёт
+`coverageEnabled`, булево `'false'` разбирается в `false`). Намерение отключить coverage
+сохранено, но сломанный флаг больше не передаётся.
+
+**Статус:** исправление в коде (workflow). **Повторный прогон CI не выполнялся** —
+результат «тесты прошли» не заявляется.
+
 **Не запускались.** Ожидаемые тесты обнаружены в коде (но не в Unity Runner):
 
 | Тест | Покрытие (по коду) | Статус в Unity |
@@ -207,7 +232,7 @@ scene/GUID validation, file-only EXE check), но **Unity не производ�
 
 1. Повторная компиляция в Unity после исправления manifest — не выполнялась (Unity есть только у пользователя, не в sandbox).
 2. Windows Build Support module и license не подтверждены.
-3. Нет запущенного Unity Test Runner / Play Mode / screenshot pipeline.
+3. Нет повторного прогона CI после исправления флага coverage (§5, раунд 3); Unity Test Runner / Play Mode / screenshot pipeline не запускались.
 4. Нет Windows build artifacts.
 5. Референс-скриншоты Play Store не анализировались визуально; procedural art/audio — placeholders.
 

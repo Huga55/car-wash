@@ -1,10 +1,8 @@
-Assets\LittleGarage\GameManager.cs(348,25): warning CS0219: The variable 'unused' is assigned but its value is never used
-
-Assets\LittleGarage\GameManager.cs(747,71): error CS0117: 'ParticleSystem' does not contain a definition for 'ParticleSystemStopBehavior'
-
-Assets\LittleGarage\GameManager.cs(748,69): error CS0117: 'ParticleSystem' does not contain a definition for 'ParticleSystemStopBehavior'
-
-Assets\LittleGarage\UI\UIManager.cs(105,26): warning CS0414: The field 'UIManager._currentScreen' is assigned but its value is never used
-
-Assets\LittleGarage\Systems\RepairSystem.cs(90,23): warning CS0414: The field 'RepairSystem._stageT' is assigned but its value is never used
-
+Run game-ci/unity-test-runner@v4
+Downloading game-ci CLI v0.1.77 from https://github.com/game-ci/cli/releases/download/v0.1.77/game-ci-linux-x64.tar.gz
+/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/23a991e4-ca36-46d5-8c42-510cf34fd7eb -f /home/runner/work/_temp/db0310f1-103d-4328-9d24-251f8e30d98a
+/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/car-wash/car-wash --files-from manifest.txt --use-compress-program zstdmt
+Sent 37845242 of 37845242 (100.0%), 36.1 MBs/sec
+/home/runner/work/_temp/23a991e4-ca36-46d5-8c42-510cf34fd7eb/game-ci test --docker --dockerShmSize=1025m --engine=unity --testPlatforms=playmode;editmode;COMBINE_RESULTS --engineVersion=2022.3.61f1 --no-coverageEnabled --coverageOptions=generateAdditionalMetrics;generateHtmlReport;generateBadgeReport;dontClear --artifactsPath=build/verification --dockerIsolationMode=default --containerRegistryRepository=unityci/editor --containerRegistryImageVersion=3
+[WARN] Unknown argument: noCoverageEnabled
+Error: Test run failed with exit code 1
