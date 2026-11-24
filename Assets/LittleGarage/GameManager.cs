@@ -214,21 +214,25 @@ namespace LittleGarage
         }
 
         /// <summary>
-        /// Builds a pointer ray in the camera's own screen space. Headless CI gives the
-        /// camera a render target while Unity's global Screen size stays empty; in that
-        /// case ScreenPointToRay interprets camera-sized coordinates against the wrong
-        /// dimensions and misses the car. Going through the camera's viewport keeps
-        /// WorldToScreenPoint and raycasts in the same coordinate system on real screens
-        /// and in batchmode.
+        /// Builds a pointer ray by normalizing against the camera's own pixel rect.
+        /// Camera.WorldToScreenPoint emits coordinates in that same pixel space, but
+        /// Unity's ScreenPointToRay/ScreenToViewportPoint use the global Screen size.
+        /// Those agree in a normal player, yet in headless CI the camera has a render
+        /// target while Screen.width/height are empty, so the built-in conversions
+        /// miss every paint collider. Explicit pixel-rect math is the inverse of
+        /// WorldToScreenPoint on both real screens and batchmode render targets.
         /// </summary>
         private Ray PointerRay(Vector2 screen)
         {
             if (_camera == null) return new Ray(Vector3.zero, Vector3.forward);
-            if (_camera.pixelWidth <= 0 || _camera.pixelHeight <= 0)
+            Rect pixels = _camera.pixelRect;
+            if (pixels.width <= 0f || pixels.height <= 0f)
                 return _camera.ScreenPointToRay(screen);
 
-            Vector3 viewport = _camera.ScreenToViewportPoint(screen);
-            return _camera.ViewportPointToRay(viewport);
+            Vector2 viewport = new Vector2(
+                (screen.x - pixels.xMin) / pixels.width,
+                (screen.y - pixels.yMin) / pixels.height);
+            return _camera.ViewportPointToRay(new Vector3(viewport.x, viewport.y, 0f));
         }
 
         private TaskKind CurrentTaskKind()

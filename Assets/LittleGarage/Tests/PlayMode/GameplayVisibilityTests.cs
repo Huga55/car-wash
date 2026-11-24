@@ -119,7 +119,8 @@ namespace LittleGarage.Tests
                 yield return null;
             }
 
-            Assert.Less(surface.Cleanliness, before,
+            // Cleanliness is 1 - average dirt, so successful washing raises it.
+            Assert.Greater(surface.Cleanliness, before,
                 "A stationary held pointer must keep cleaning, not just the initial move event.");
             Assert.IsFalse(ui.InstructionVisible, "Instruction must hide after the first successful interaction.");
             Assert.AreEqual(0, ui.VisibleJobCardCount, "Task selection must stay hidden during gameplay.");
