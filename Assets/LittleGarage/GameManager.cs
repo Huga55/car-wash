@@ -94,17 +94,24 @@ namespace LittleGarage
 
         /// <summary>
         /// Converts a world point to the same pixel-space pointer coordinates that
-        /// PointerRay() consumes. It uses the camera's viewport projection so headless
-        /// render targets and real screens both round-trip through one coordinate system.
+        /// PointerRay() consumes. Both directions use the camera's projection matrices
+        /// directly: the screen/viewport helper APIs still consult global Screen state,
+        /// which is empty in batchmode and made test rays miss every paint collider.
         /// </summary>
         internal Vector2 ScreenPointForWorldForTests(Vector3 world)
         {
             if (_camera == null) _camera = Camera.main;
             if (_camera == null) return Vector2.zero;
-            Vector3 viewport = _camera.WorldToViewportPoint(world);
+
+            Matrix4x4 viewProjection = _camera.projectionMatrix * _camera.worldToCameraMatrix;
+            Vector4 clip = viewProjection * new Vector4(world.x, world.y, world.z, 1f);
+            if (Mathf.Abs(clip.w) < 0.000001f) return Vector2.zero;
+
+            float ndcX = clip.x / clip.w;
+            float ndcY = clip.y / clip.w;
             Rect pixels = PointerPixelRect();
-            return new Vector2(pixels.xMin + viewport.x * pixels.width,
-                               pixels.yMin + viewport.y * pixels.height);
+            return new Vector2(pixels.xMin + (ndcX * 0.5f + 0.5f) * pixels.width,
+                               pixels.yMin + (ndcY * 0.5f + 0.5f) * pixels.height);
         }
 
         public void Initialize(GameConfig config)
@@ -245,9 +252,10 @@ namespace LittleGarage
         }
 
         /// <summary>
-        /// Builds a pointer ray by normalizing against PointerPixelRect(). This is the
+        /// Builds a pointer ray by unprojecting through PointerPixelRect(). This is the
         /// exact inverse of ScreenPointForWorldForTests() and of Input.mousePosition in
-        /// a normal player, while remaining valid when batchmode has no global screen.
+        /// a normal player, without relying on ScreenPointToRay/ViewportPointToRay whose
+        /// headless Screen state made the ray miss every paint collider.
         /// </summary>
         private Ray PointerRay(Vector2 screen)
         {
@@ -256,10 +264,28 @@ namespace LittleGarage
             if (pixels.width <= 0f || pixels.height <= 0f)
                 return _camera.ScreenPointToRay(screen);
 
-            Vector2 viewport = new Vector2(
-                (screen.x - pixels.xMin) / pixels.width,
-                (screen.y - pixels.yMin) / pixels.height);
-            return _camera.ViewportPointToRay(new Vector3(viewport.x, viewport.y, 0f));
+            Matrix4x4 inverseViewProjection =
+                (_camera.projectionMatrix * _camera.worldToCameraMatrix).inverse;
+            Vector3 ndc = new Vector3(
+                ((screen.x - pixels.xMin) / pixels.width) * 2f - 1f,
+                ((screen.y - pixels.yMin) / pixels.height) * 2f - 1f,
+                -1f);
+
+            Vector3 nearPoint = Unproject(inverseViewProjection, ndc);
+            ndc.z = 1f;
+            Vector3 farPoint = Unproject(inverseViewProjection, ndc);
+            Vector3 direction = farPoint - nearPoint;
+            if (direction.sqrMagnitude < 0.00000001f)
+                return _camera.ScreenPointToRay(screen);
+
+            return new Ray(nearPoint, direction.normalized);
+        }
+
+        private Vector3 Unproject(Matrix4x4 inverseViewProjection, Vector3 ndc)
+        {
+            Vector4 point = inverseViewProjection * new Vector4(ndc.x, ndc.y, ndc.z, 1f);
+            if (Mathf.Abs(point.w) < 0.000001f) return _camera.transform.position;
+            return new Vector3(point.x / point.w, point.y / point.w, point.z / point.w);
         }
 
         private TaskKind CurrentTaskKind()
