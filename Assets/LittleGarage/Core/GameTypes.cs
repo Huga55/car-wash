@@ -25,6 +25,9 @@ namespace LittleGarage
 
     public enum ScreenId { Home, Garage, Play, Complete }
 
+    /// <summary>Non-primary layers owned by UIManager. Primary screens stay mutually exclusive.</summary>
+    public enum UiOverlay { None, Pause, Customization, Settings }
+
     /// <summary>How a repair part is interacted with.</summary>
     public enum RepairGesture
     {

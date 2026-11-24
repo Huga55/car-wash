@@ -12,9 +12,6 @@ namespace LittleGarage
     /// </summary>
     public sealed class UIManager : MonoBehaviour
     {
-        private const float RefW = 1080f;
-        private const float RefH = 1920f;
-
         private readonly Color _bg = new Color(0.10f, 0.11f, 0.13f, 0.96f);
         private readonly Color _panel = new Color(0.16f, 0.18f, 0.20f, 0.94f);
         private readonly Color _panelSoft = new Color(0.20f, 0.22f, 0.25f, 0.92f);
@@ -26,9 +23,12 @@ namespace LittleGarage
         private readonly Color _danger = new Color(0.72f, 0.30f, 0.28f, 1f);
 
         private UnityEngine.Canvas _canvas;
+        private CanvasScaler _scaler;
         private RectTransform _root;
         private RectTransform _safeRoot;
         private EventSystem _eventSystem;
+        private int _lastScreenWidth = -1;
+        private int _lastScreenHeight = -1;
         private readonly List<RaycastResult> _raycastResults = new List<RaycastResult>(16);
         private PointerEventData _pointerEventData;
 
@@ -58,6 +58,7 @@ namespace LittleGarage
         private readonly List<JobCard> _jobCards = new List<JobCard>(10);
         private Text _garageProgressText;
         private Button _garageBackButton;
+        private RectTransform _garageContent;
 
         // Play HUD
         private Text _playTitleText;
@@ -66,6 +67,9 @@ namespace LittleGarage
         private Text _playHintText;
         private Slider _playProgressSlider;
         private Button _playPauseButton;
+        private GameObject _topBar;
+        private GameObject _instructionPanel;
+        private GameObject _hintPanel;
         private RectTransform _toolBar;
         private readonly List<ToolButton> _toolButtons = new List<ToolButton>(6);
 
@@ -85,6 +89,7 @@ namespace LittleGarage
         private Text _pauseSoundButtonText;
 
         // Customization
+        private RectTransform _customContent;
         private Text _customTitleText;
         private RectTransform _colorRow;
         private RectTransform _rimRow;
@@ -102,10 +107,95 @@ namespace LittleGarage
         private Toggle _sfxToggle;
         private Button _settingsCloseButton;
 
+        // Single authoritative UI visibility state. Every Show*/Hide* method goes through ApplyVisibility.
         private ScreenId _currentScreen = ScreenId.Home;
+        private bool _pauseVisible;
+        private bool _customizationVisible;
+        private bool _settingsVisible;
+        private bool _hudVisible;
+        private bool _toolsVisible;
+        private UiOverlay _settingsReturnOverlay = UiOverlay.None;
 
-        /// <summary>Read-only view of the screen last shown; useful for QA and tests.</summary>
+        /// <summary>Read-only view of the primary screen; useful for QA and tests.</summary>
         public ScreenId CurrentScreen => _currentScreen;
+
+        /// <summary>Returns the active primary screen only when exactly one is active.</summary>
+        public ScreenId? ActivePrimaryScreen
+        {
+            get
+            {
+                int count = 0;
+                ScreenId found = ScreenId.Home;
+                if (IsActive(_homeScreen)) { count++; found = ScreenId.Home; }
+                if (IsActive(_garageScreen)) { count++; found = ScreenId.Garage; }
+                if (IsActive(_playScreen)) { count++; found = ScreenId.Play; }
+                if (IsActive(_completeScreen)) { count++; found = ScreenId.Complete; }
+                return count == 1 ? found : (ScreenId?)null;
+            }
+        }
+
+        public UiOverlay ActiveOverlay
+        {
+            get
+            {
+                if (_settingsVisible) return UiOverlay.Settings;
+                if (_pauseVisible) return UiOverlay.Pause;
+                if (_customizationVisible) return UiOverlay.Customization;
+                return UiOverlay.None;
+            }
+        }
+
+        public bool IsOverlayActive(UiOverlay overlay)
+        {
+            return ActiveOverlay == overlay;
+        }
+
+        public bool IsPrimaryScreenActive(ScreenId screen)
+        {
+            switch (screen)
+            {
+                case ScreenId.Home: return IsActive(_homeScreen);
+                case ScreenId.Garage: return IsActive(_garageScreen);
+                case ScreenId.Play: return IsActive(_playScreen);
+                case ScreenId.Complete: return IsActive(_completeScreen);
+                default: return false;
+            }
+        }
+
+        public int ActiveToolButtonCount
+        {
+            get
+            {
+                int count = 0;
+                for (int i = 0; i < _toolButtons.Count; i++)
+                    if (_toolButtons[i] != null && IsActive(_toolButtons[i].Root)) count++;
+                return count;
+            }
+        }
+
+        public int VisibleJobCardCount
+        {
+            get
+            {
+                int count = 0;
+                for (int i = 0; i < _jobCards.Count; i++)
+                    if (IsActive(_jobCards[i] != null ? _jobCards[i].Root : null)) count++;
+                return count;
+            }
+        }
+
+        public float ScalerMatch => _scaler != null ? _scaler.matchWidthOrHeight : UiLayoutMetrics.ScalerMatch;
+
+        public Vector2 ScalerReferenceResolution => _scaler != null
+            ? _scaler.referenceResolution
+            : UiLayoutMetrics.ReferenceResolution;
+
+        private static bool IsActive(GameObject go)
+        {
+            // activeSelf is true for children of a deactivated screen; QA/test
+            // counters must report what is actually visible and hittable.
+            return go != null && go.activeInHierarchy;
+        }
 
         private string _currentJobId;
         private ProgressManager _progress;
@@ -129,6 +219,7 @@ namespace LittleGarage
             public GameObject Root;
             public Button Button;
             public Image Background;
+            public Image Icon;
             public Text Label;
             public string ToolId;
         }
@@ -153,6 +244,7 @@ namespace LittleGarage
 
         private void Update()
         {
+            ApplyScalerIfNeeded();
             ApplySafeAreaIfNeeded();
         }
 
@@ -160,8 +252,7 @@ namespace LittleGarage
         {
             EnsureBuilt();
             _progress = p;
-            _currentScreen = ScreenId.Home;
-            SetScreen(_homeScreen);
+            ApplyVisibility(ScreenId.Home, false, false, false, false, false);
             UpdateHome(p);
         }
 
@@ -169,21 +260,15 @@ namespace LittleGarage
         {
             EnsureBuilt();
             _progress = p;
-            _currentScreen = ScreenId.Garage;
-            SetScreen(_garageScreen);
+            ApplyVisibility(ScreenId.Garage, false, false, false, false, false);
             UpdateGarage(p);
         }
 
         public void ShowPlay(JobDef job, int step, int steps, string instruction, string toolLabel, JobTaskDef activeTask = null)
         {
             EnsureBuilt();
-            _currentScreen = ScreenId.Play;
             _currentJobId = job != null ? job.id : _currentJobId;
-            SetScreen(_playScreen);
-            _pausePanel.SetActive(false);
-            _customizationPanel.SetActive(false);
-            _settingsPanel.SetActive(false);
-            _toolBar.gameObject.SetActive(true);
+            ApplyVisibility(ScreenId.Play, false, false, false, true, true);
 
             _playTitleText.text = job != null ? job.titleRu : "Задание";
             int safeSteps = Mathf.Max(1, steps);
@@ -197,10 +282,20 @@ namespace LittleGarage
         public void HideTools()
         {
             EnsureBuilt();
-            if (_toolBar != null) _toolBar.gameObject.SetActive(false);
+            // Finale keeps the primary Play screen for the 3D showcase but removes gameplay chrome.
+            if (_currentScreen == ScreenId.Play)
+                ApplyVisibility(ScreenId.Play, false, false, false, false, false);
+            ClearToolButtons();
+        }
+
+        private void ClearToolButtons()
+        {
             for (int i = 0; i < _toolButtons.Count; i++)
             {
-                if (_toolButtons[i].Root != null) Destroy(_toolButtons[i].Root);
+                GameObject root = _toolButtons[i] != null ? _toolButtons[i].Root : null;
+                if (root == null) continue;
+                root.transform.SetParent(null, false);
+                Destroy(root);
             }
             _toolButtons.Clear();
         }
@@ -221,11 +316,7 @@ namespace LittleGarage
         public void ShowComplete(string title, string body, int reward)
         {
             EnsureBuilt();
-            _currentScreen = ScreenId.Complete;
-            SetScreen(_completeScreen);
-            _pausePanel.SetActive(false);
-            _customizationPanel.SetActive(false);
-            _settingsPanel.SetActive(false);
+            ApplyVisibility(ScreenId.Complete, false, false, false, false, false);
             _completeTitleText.text = string.IsNullOrEmpty(title) ? "Готово!" : title;
             _completeBodyText.text = body ?? string.Empty;
             _completeRewardText.text = "Награда: " + Mathf.Max(0, reward);
@@ -234,27 +325,41 @@ namespace LittleGarage
         public void ShowPause(bool v)
         {
             EnsureBuilt();
-            if (_pausePanel != null) _pausePanel.SetActive(v);
+            if (v && _currentScreen != ScreenId.Play) return;
             if (v)
             {
-                _settingsPanel.SetActive(false);
+                _settingsReturnOverlay = UiOverlay.None;
+                ApplyVisibility(ScreenId.Play, true, false, false, false, false);
                 UpdateSoundButtonLabels();
+            }
+            else if (_pauseVisible)
+            {
+                ApplyVisibility(ScreenId.Play, false, false, false, true, true);
             }
         }
 
         public void ShowCustomization(VehicleDef def)
         {
             EnsureBuilt();
+            if (_currentScreen != ScreenId.Play) return;
             _customDef = def;
-            _customizationPanel.SetActive(true);
+            _settingsReturnOverlay = UiOverlay.None;
+            ApplyVisibility(ScreenId.Play, false, true, false, false, false);
             _customTitleText.text = "Кастомизация";
             BuildCustomizationOptions(def);
+        }
+
+        private void HideCustomization()
+        {
+            if (!_customizationVisible) return;
+            ApplyVisibility(ScreenId.Play, false, false, false, true, true);
         }
 
         public bool IsPointerOverUI(Vector2 screenPosition)
         {
             EnsureBuilt();
-            if (_eventSystem == null) _eventSystem = EventSystem.current;
+            EventSystem current = EventSystem.current;
+            if (current != null) _eventSystem = current;
             if (_eventSystem == null) return false;
             if (_pointerEventData == null) _pointerEventData = new PointerEventData(_eventSystem);
             _pointerEventData.position = screenPosition;
@@ -271,18 +376,22 @@ namespace LittleGarage
             BuildScreens();
             WireStaticButtons();
             UpdateSoundButtonLabels();
-            SetScreen(_homeScreen);
+            ApplyVisibility(ScreenId.Home, false, false, false, false, false);
+            ApplyScaler(true);
             ApplySafeArea(true);
         }
 
         private void EnsureEventSystem()
         {
             _eventSystem = EventSystem.current;
-            if (_eventSystem != null) return;
-            var esGo = new GameObject("EventSystem");
-            esGo.transform.SetParent(transform, false);
-            _eventSystem = esGo.AddComponent<EventSystem>();
-            esGo.AddComponent<StandaloneInputModule>();
+            if (_eventSystem == null)
+            {
+                var esGo = new GameObject("EventSystem");
+                esGo.transform.SetParent(transform, false);
+                _eventSystem = esGo.AddComponent<EventSystem>();
+            }
+            if (_eventSystem.GetComponent<StandaloneInputModule>() == null)
+                _eventSystem.gameObject.AddComponent<StandaloneInputModule>();
         }
 
         private void BuildCanvas()
@@ -294,11 +403,11 @@ namespace LittleGarage
             _canvas.sortingOrder = 100;
             canvasGo.AddComponent<GraphicRaycaster>();
 
-            CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(RefW, RefH);
-            scaler.matchWidthOrHeight = MatchForCurrentScreen();
-            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            _scaler = canvasGo.AddComponent<CanvasScaler>();
+            _scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            _scaler.referenceResolution = UiLayoutMetrics.ReferenceResolution;
+            _scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            _scaler.matchWidthOrHeight = UiLayoutMetrics.ScalerMatch;
 
             _root = canvasGo.GetComponent<RectTransform>();
             Stretch(_root);
@@ -314,11 +423,31 @@ namespace LittleGarage
             _circleSprite = GetCircleSprite(64);
         }
 
-        private static float MatchForCurrentScreen()
+        private void ApplyScalerIfNeeded()
         {
+            if (_scaler == null) return;
+            if (_lastScreenWidth == Screen.width && _lastScreenHeight == Screen.height) return;
+            ApplyScaler(true);
+        }
+
+        private void ApplyScaler(bool force)
+        {
+            if (_scaler == null) return;
+            if (!force && _lastScreenWidth == Screen.width && _lastScreenHeight == Screen.height) return;
+            _lastScreenWidth = Screen.width;
+            _lastScreenHeight = Screen.height;
             float aspect = (float)Screen.width / Mathf.Max(1f, Screen.height);
-            // Portrait reference 1080x1920; landscape needs more width match.
-            return aspect < 1f ? 0.5f : 0.2f;
+            // One documented match value for every orientation; see UiLayoutMetrics.
+            _scaler.matchWidthOrHeight = UiLayoutMetrics.ScalerMatchForAspect(aspect);
+            ApplyGarageContentInsets(aspect);
+        }
+
+        private void ApplyGarageContentInsets(float aspect)
+        {
+            if (_garageContent == null) return;
+            float inset = UiLayoutMetrics.GarageContentSideInset01(aspect);
+            _garageContent.anchorMin = new Vector2(inset, 0f);
+            _garageContent.anchorMax = new Vector2(1f - inset, 1f - UiLayoutMetrics.GarageHeaderHeight01);
         }
 
         private void ApplySafeAreaIfNeeded()
@@ -376,15 +505,37 @@ namespace LittleGarage
             return go;
         }
 
-        private void SetScreen(GameObject active)
+        /// <summary>
+        /// The only method allowed to change UI visibility. Primary screens are mutually
+        /// exclusive; overlays are children of the active primary and never select a new one.
+        /// </summary>
+        private void ApplyVisibility(ScreenId screen, bool pause, bool customization, bool settings,
+            bool hud, bool tools)
         {
-            if (_homeScreen != null) _homeScreen.SetActive(active == _homeScreen);
-            if (_garageScreen != null) _garageScreen.SetActive(active == _garageScreen);
-            if (_playScreen != null) _playScreen.SetActive(active == _playScreen);
-            if (_completeScreen != null) _completeScreen.SetActive(active == _completeScreen);
-            if (_pausePanel != null && active != _playScreen) _pausePanel.SetActive(false);
-            if (_customizationPanel != null && active != _playScreen) _customizationPanel.SetActive(false);
-            if (_settingsPanel != null) _settingsPanel.SetActive(false);
+            _currentScreen = screen;
+            _pauseVisible = pause && screen == ScreenId.Play;
+            _customizationVisible = customization && screen == ScreenId.Play;
+            _settingsVisible = settings;
+            _hudVisible = hud && screen == ScreenId.Play;
+            _toolsVisible = tools && screen == ScreenId.Play && !_pauseVisible
+                && !_customizationVisible && !_settingsVisible;
+
+            if (_homeScreen != null) _homeScreen.SetActive(screen == ScreenId.Home);
+            if (_garageScreen != null) _garageScreen.SetActive(screen == ScreenId.Garage);
+            if (_playScreen != null) _playScreen.SetActive(screen == ScreenId.Play);
+            if (_completeScreen != null) _completeScreen.SetActive(screen == ScreenId.Complete);
+
+            if (_topBar != null) _topBar.SetActive(_hudVisible);
+            if (_instructionPanel != null) _instructionPanel.SetActive(_hudVisible);
+            if (_hintPanel != null) _hintPanel.SetActive(screen == ScreenId.Play);
+            if (_toolBar != null) _toolBar.gameObject.SetActive(_toolsVisible);
+            if (_pausePanel != null) _pausePanel.SetActive(_pauseVisible);
+            if (_customizationPanel != null) _customizationPanel.SetActive(_customizationVisible);
+            if (_settingsPanel != null)
+            {
+                _settingsPanel.SetActive(_settingsVisible);
+                if (_settingsVisible) _settingsPanel.transform.SetAsLastSibling();
+            }
         }
 
         private void BuildHomeScreen()
@@ -392,36 +543,51 @@ namespace LittleGarage
             Image bg = CreateImage("Bg", _homeScreen.transform, new Color(0.08f, 0.09f, 0.11f, 1f));
             Stretch(bg.rectTransform);
 
-            VerticalLayoutGroup layout = CreateVertical(_homeScreen.transform, 28f, new RectOffset(48, 48, 64, 64));
-            layout.childAlignment = TextAnchor.MiddleCenter;
-            layout.childControlHeight = true;
-            layout.childControlWidth = true;
-            layout.childForceExpandHeight = false;
-            layout.childForceExpandWidth = true;
+            ScrollRect scroll = CreateVerticalScroll(_homeScreen.transform, 16f, new RectOffset(32, 32, 24, 24));
+            RectTransform scrollRt = scroll.GetComponent<RectTransform>();
+            scrollRt.anchorMin = new Vector2(0.02f, 0.02f);
+            scrollRt.anchorMax = new Vector2(0.98f, 0.98f);
+            scrollRt.offsetMin = Vector2.zero;
+            scrollRt.offsetMax = Vector2.zero;
+            RectTransform layout = scroll.content;
 
-            CreateSpacer(layout.transform, 40f);
-            Text title = CreateText("Title", layout.transform, "МАЛЕНЬКИЙ АВТОСЕРВИС", 68, FontStyle.Bold, _text, TextAnchor.MiddleCenter);
-            title.gameObject.AddComponent<LayoutElement>().preferredHeight = 120;
+            Text title = CreateText("Title", layout, "МАЛЕНЬКИЙ АВТОСЕРВИС", 60, FontStyle.Bold, _text, TextAnchor.MiddleCenter);
+            LayoutElement titleLe = title.gameObject.AddComponent<LayoutElement>();
+            titleLe.minHeight = 64f;
+            titleLe.preferredHeight = 96f;
+            title.resizeTextForBestFit = true;
+            title.resizeTextMinSize = 36;
+            title.resizeTextMaxSize = 60;
 
-            Text subtitle = CreateText("Subtitle", layout.transform, "Мойка, ремонт и тюнинг машин", 34, FontStyle.Normal, _muted, TextAnchor.MiddleCenter);
-            subtitle.gameObject.AddComponent<LayoutElement>().preferredHeight = 60;
+            Text subtitle = CreateText("Subtitle", layout, "Мойка, ремонт и тюнинг машин", 30, FontStyle.Normal, _muted, TextAnchor.MiddleCenter);
+            LayoutElement subLe = subtitle.gameObject.AddComponent<LayoutElement>();
+            subLe.minHeight = 40f;
+            subLe.preferredHeight = 56f;
+            subtitle.resizeTextForBestFit = true;
+            subtitle.resizeTextMinSize = 20;
+            subtitle.resizeTextMaxSize = 30;
 
-            CreateSpacer(layout.transform, 30f);
+            CreateSpacer(layout, 12f);
 
-            GameObject progressCard = CreatePanel("ProgressCard", layout.transform, _panel, 22);
+            GameObject progressCard = CreatePanel("ProgressCard", layout, _panel, 22);
             LayoutElement pcLe = progressCard.AddComponent<LayoutElement>();
-            pcLe.preferredHeight = 180;
-            VerticalLayoutGroup pcv = CreateVertical(progressCard.transform, 12f, new RectOffset(28, 28, 24, 24));
-            _homeProgressText = CreateText("ProgressText", pcv.transform, "Прогресс: 0/10", 32, FontStyle.Normal, _text, TextAnchor.MiddleLeft);
-            _homeProgressText.gameObject.AddComponent<LayoutElement>().preferredHeight = 44;
+            pcLe.minHeight = 140f;
+            pcLe.preferredHeight = 168f;
+            VerticalLayoutGroup pcv = CreateVertical(progressCard.transform, 10f, new RectOffset(24, 24, 20, 20));
+            pcv.childAlignment = TextAnchor.MiddleCenter;
+            _homeProgressText = CreateText("ProgressText", pcv.transform, "Прогресс: 0/10", 28, FontStyle.Normal, _text, TextAnchor.MiddleCenter);
+            _homeProgressText.gameObject.AddComponent<LayoutElement>().preferredHeight = 40;
             _homeProgressSlider = CreateSlider(pcv.transform, _steel, _teal);
             _homeProgressSlider.interactable = false;
-            _homeProgressSlider.gameObject.AddComponent<LayoutElement>().preferredHeight = 42;
+            MakeSliderVisualOnly(_homeProgressSlider);
+            LayoutElement psLe = _homeProgressSlider.gameObject.AddComponent<LayoutElement>();
+            psLe.preferredHeight = 28f;
+            psLe.minHeight = 24f;
 
-            CreateSpacer(layout.transform, 20f);
+            CreateSpacer(layout, 16f);
 
-            _homePlayButton = CreateButton("PlayButton", layout.transform, "ИГРАТЬ", _teal, _text, 44, 140f);
-            _homeSoundButton = CreateButton("SoundButton", layout.transform, "ЗВУК И НАСТРОЙКИ", _panelSoft, _text, 32, 110f);
+            _homePlayButton = CreateButton("PlayButton", layout, "ИГРАТЬ", _teal, _text, 40, 120f);
+            _homeSoundButton = CreateButton("SoundButton", layout, "ЗВУК И НАСТРОЙКИ", _panelSoft, _text, 28, 96f);
             _homeSoundButtonText = _homeSoundButton.GetComponentInChildren<Text>();
         }
 
@@ -430,30 +596,40 @@ namespace LittleGarage
             CreateImage("Bg", _garageScreen.transform, new Color(0.09f, 0.10f, 0.12f, 1f)).rectTransform.StretchFull();
 
             var topBar = CreatePanel("Top", _garageScreen.transform, _panel, 0).GetComponent<RectTransform>();
-            AnchorTop(topBar, 0.12f);
-            HorizontalLayoutGroup top = CreateHorizontal(topBar, 20f, new RectOffset(24, 24, 16, 16));
+            AnchorTop(topBar, UiLayoutMetrics.GarageHeaderHeight01);
+            HorizontalLayoutGroup top = CreateHorizontal(topBar, 16f, new RectOffset(20, 20, 12, 12));
             top.childAlignment = TextAnchor.MiddleCenter;
-            _garageBackButton = CreateButton("Back", top.transform, "НАЗАД", _steel, _text, 30, 96f, 220f);
-            Text title = CreateText("Title", top.transform, "ВЫБОР ЗАДАНИЯ", 44, FontStyle.Bold, _text, TextAnchor.MiddleCenter);
+            _garageBackButton = CreateButton("Back", top.transform, "НАЗАД", _steel, _text, 30, 96f, 180f);
+            LayoutElement backLe = _garageBackButton.GetComponent<LayoutElement>();
+            backLe.minWidth = 160f;
+            backLe.flexibleWidth = 0;
+
+            Text title = CreateText("Title", top.transform, "ВЫБОР ЗАДАНИЯ", 40, FontStyle.Bold, _text, TextAnchor.MiddleCenter);
             LayoutElement titleLe = title.gameObject.AddComponent<LayoutElement>();
+            titleLe.minWidth = 120f;
             titleLe.flexibleWidth = 1;
-            _garageProgressText = CreateText("Progress", top.transform, "0/10", 32, FontStyle.Normal, _amber, TextAnchor.MiddleRight);
-            _garageProgressText.gameObject.AddComponent<LayoutElement>().preferredWidth = 180;
+            title.resizeTextForBestFit = true;
+            title.resizeTextMinSize = 24;
+            title.resizeTextMaxSize = 40;
+
+            _garageProgressText = CreateText("Progress", top.transform, "0/10", 30, FontStyle.Bold, _amber, TextAnchor.MiddleRight);
+            LayoutElement counterLe = _garageProgressText.gameObject.AddComponent<LayoutElement>();
+            counterLe.minWidth = 96f;
+            counterLe.preferredWidth = 140f;
+            counterLe.flexibleWidth = 0;
 
             var content = new GameObject("Content", typeof(RectTransform));
             content.transform.SetParent(_garageScreen.transform, false);
-            RectTransform crt = content.GetComponent<RectTransform>();
-            crt.anchorMin = new Vector2(0f, 0f);
-            crt.anchorMax = new Vector2(1f, 0.88f);
-            crt.offsetMin = new Vector2(24, 24);
-            crt.offsetMax = new Vector2(-24, -12);
+            _garageContent = content.GetComponent<RectTransform>();
+            ApplyGarageContentInsets((float)Screen.width / Mathf.Max(1f, Screen.height));
+            _garageContent.offsetMin = new Vector2(0f, 24f);
+            _garageContent.offsetMax = new Vector2(0f, -12f);
 
             ScrollRect scroll = content.AddComponent<ScrollRect>();
             scroll.horizontal = false;
             scroll.movementType = ScrollRect.MovementType.Clamped;
             var viewport = CreatePanel("Viewport", content.transform, new Color(0, 0, 0, 0), 0).GetComponent<RectTransform>();
             Stretch(viewport);
-            // viewport mask omitted in stub compile
             var mask = viewport.gameObject.GetComponent<UnityEngine.UI.RectMask2D>();
             if (mask == null) viewport.gameObject.AddComponent<UnityEngine.UI.RectMask2D>();
             scroll.viewport = viewport;
@@ -489,40 +665,62 @@ namespace LittleGarage
         {
             GameObject root = CreatePanel("JobCard", parent, _panel, 18);
             LayoutElement le = root.AddComponent<LayoutElement>();
-            le.preferredHeight = 150;
+            le.minHeight = 128f;
+            le.flexibleWidth = 1f;
             Button btn = root.AddComponent<Button>();
             btn.transition = Button.Transition.ColorTint;
+            btn.targetGraphic = root.GetComponent<Image>();
             ColorBlock cb = btn.colors;
-            cb.highlightedColor = new Color(1.05f, 1.05f, 1.05f, 1f);
-            cb.pressedColor = new Color(0.9f, 0.9f, 0.9f, 1f);
+            cb.highlightedColor = new Color(1.04f, 1.04f, 1.04f, 1f);
+            cb.pressedColor = new Color(0.92f, 0.92f, 0.92f, 1f);
+            cb.disabledColor = new Color(0.85f, 0.85f, 0.85f, 0.9f);
             btn.colors = cb;
 
-            HorizontalLayoutGroup h = CreateHorizontal(root.transform, 16f, new RectOffset(20, 20, 16, 16));
+            HorizontalLayoutGroup h = CreateHorizontal(root.transform, 12f, new RectOffset(20, 20, 16, 16));
             h.childAlignment = TextAnchor.MiddleCenter;
+            h.childControlWidth = true;
+            h.childForceExpandWidth = false;
 
-            var info = new GameObject("Info", typeof(RectTransform), typeof(VerticalLayoutGroup));
+            var info = new GameObject("Info", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(LayoutElement));
             info.transform.SetParent(root.transform, false);
             VerticalLayoutGroup iv = info.GetComponent<VerticalLayoutGroup>();
-            iv.spacing = 6f;
+            iv.spacing = 4f;
             iv.childControlWidth = true;
             iv.childControlHeight = true;
             iv.childForceExpandWidth = true;
             iv.childForceExpandHeight = false;
-            LayoutElement infoLe = info.AddComponent<LayoutElement>();
-            infoLe.flexibleWidth = 1;
+            LayoutElement infoLe = info.GetComponent<LayoutElement>();
+            infoLe.minWidth = 0f;
+            infoLe.flexibleWidth = 1f;
 
-            Text title = CreateText("Title", info.transform, "", 34, FontStyle.Bold, _text, TextAnchor.MiddleLeft);
-            title.gameObject.AddComponent<LayoutElement>().preferredHeight = 44;
-            Text desc = CreateText("Desc", info.transform, "", 26, FontStyle.Normal, _muted, TextAnchor.MiddleLeft);
-            desc.gameObject.AddComponent<LayoutElement>().preferredHeight = 36;
-            Text stars = CreateText("Stars", info.transform, "", 28, FontStyle.Normal, _amber, TextAnchor.MiddleLeft);
-            stars.gameObject.AddComponent<LayoutElement>().preferredHeight = 34;
+            Text title = CreateText("Title", info.transform, "", 32, FontStyle.Bold, _text, TextAnchor.MiddleLeft);
+            LayoutElement titleLe = title.gameObject.AddComponent<LayoutElement>();
+            titleLe.minHeight = 38f;
+            title.resizeTextForBestFit = true;
+            title.resizeTextMinSize = 22;
+            title.resizeTextMaxSize = 32;
+            title.verticalOverflow = VerticalWrapMode.Overflow;
 
-            GameObject lockOverlay = CreatePanel("Lock", root.transform, new Color(0f, 0f, 0f, 0.35f), 18);
+            Text desc = CreateText("Desc", info.transform, "", 24, FontStyle.Normal, _muted, TextAnchor.MiddleLeft);
+            LayoutElement descLe = desc.gameObject.AddComponent<LayoutElement>();
+            descLe.minHeight = 32f;
+            desc.horizontalOverflow = HorizontalWrapMode.Wrap;
+            desc.verticalOverflow = VerticalWrapMode.Overflow;
+            desc.resizeTextForBestFit = true;
+            desc.resizeTextMinSize = 18;
+            desc.resizeTextMaxSize = 24;
+
+            Text stars = CreateText("Stars", info.transform, "", 24, FontStyle.Bold, _amber, TextAnchor.MiddleLeft);
+            LayoutElement starsLe = stars.gameObject.AddComponent<LayoutElement>();
+            starsLe.minHeight = 30f;
+            stars.verticalOverflow = VerticalWrapMode.Overflow;
+
+            GameObject lockOverlay = CreatePanel("Lock", root.transform, new Color(0f, 0f, 0f, 0.28f), 18);
             LayoutElement lockLe = lockOverlay.AddComponent<LayoutElement>();
             lockLe.ignoreLayout = true;
             Stretch(lockOverlay.GetComponent<RectTransform>());
-            Text lockText = CreateText("LockText", lockOverlay.transform, "ЗАКРЫТО", 30, FontStyle.Bold, _muted, TextAnchor.MiddleCenter);
+            lockOverlay.GetComponent<Image>().raycastTarget = false;
+            Text lockText = CreateText("LockText", lockOverlay.transform, "ЗАКРЫТО", 28, FontStyle.Bold, _muted, TextAnchor.MiddleCenter);
             Stretch(lockText.rectTransform);
 
             return new JobCard
@@ -543,55 +741,84 @@ namespace LittleGarage
             Image bg = CreateImage("Bg", _playScreen.transform, new Color(0, 0, 0, 0));
             Stretch(bg.rectTransform);
 
-            // Top bar <= 15%
-            GameObject top = CreatePanel("TopBar", _playScreen.transform, new Color(_panel.r, _panel.g, _panel.b, 0.82f), 0);
-            RectTransform topRt = top.GetComponent<RectTransform>();
-            AnchorTop(topRt, 0.14f);
-            HorizontalLayoutGroup th = CreateHorizontal(topRt, 12f, new RectOffset(20, 20, 12, 12));
+            // Top bar: documented compact height so the play area stays visible.
+            _topBar = CreatePanel("TopBar", _playScreen.transform, new Color(_panel.r, _panel.g, _panel.b, 0.82f), 0);
+            _topBar.GetComponent<Image>().raycastTarget = false;
+            RectTransform topRt = _topBar.GetComponent<RectTransform>();
+            AnchorTop(topRt, UiLayoutMetrics.TopBarHeight01);
+            HorizontalLayoutGroup th = CreateHorizontal(topRt, 12f, new RectOffset(20, 20, 10, 10));
             th.childAlignment = TextAnchor.MiddleCenter;
+            th.childForceExpandWidth = false;
 
-            // Info needs its own child object: TopBar already hosts a HorizontalLayoutGroup,
-            // and a GameObject may only contain one LayoutGroup.
-            GameObject info = new GameObject("Info", typeof(RectTransform));
+            GameObject info = new GameObject("Info", typeof(RectTransform), typeof(LayoutElement));
             info.transform.SetParent(topRt, false);
-            VerticalLayoutGroup infoLayout = CreateVertical(info.transform, 2f, new RectOffset(0, 0, 0, 0));
-            LayoutElement infoLe = info.AddComponent<LayoutElement>();
+            LayoutElement infoLe = info.GetComponent<LayoutElement>();
             infoLe.flexibleWidth = 1;
-            _playTitleText = CreateText("Title", infoLayout.transform, "", 34, FontStyle.Bold, _text, TextAnchor.MiddleLeft);
-            _playTitleText.gameObject.AddComponent<LayoutElement>().preferredHeight = 44;
-            _playTaskText = CreateText("Task", infoLayout.transform, "", 24, FontStyle.Normal, _muted, TextAnchor.MiddleLeft);
-            _playTaskText.gameObject.AddComponent<LayoutElement>().preferredHeight = 30;
+            infoLe.minWidth = 0f;
+            VerticalLayoutGroup infoLayout = CreateVertical(info.transform, 2f, new RectOffset(0, 0, 0, 0));
+            infoLayout.childAlignment = TextAnchor.MiddleLeft;
+            infoLayout.childControlHeight = true;
+            infoLayout.childForceExpandHeight = false;
 
-            _playPauseButton = CreateButton("Pause", topRt, "ПАУЗА", _steel, _text, 28, 96f, 180f);
+            _playTitleText = CreateText("Title", infoLayout.transform, "", 32, FontStyle.Bold, _text, TextAnchor.MiddleLeft);
+            LayoutElement titleLe = _playTitleText.gameObject.AddComponent<LayoutElement>();
+            titleLe.minHeight = 38f;
+            _playTitleText.resizeTextForBestFit = true;
+            _playTitleText.resizeTextMinSize = 22;
+            _playTitleText.resizeTextMaxSize = 32;
+            _playTitleText.verticalOverflow = VerticalWrapMode.Overflow;
 
-            // Instruction strip under top bar, still within safe HUD.
-            GameObject instr = CreatePanel("Instruction", _playScreen.transform, new Color(0.12f, 0.13f, 0.15f, 0.55f), 12);
-            RectTransform irt = instr.GetComponent<RectTransform>();
-            irt.anchorMin = new Vector2(0.08f, 0.80f);
-            irt.anchorMax = new Vector2(0.92f, 0.86f);
+            _playTaskText = CreateText("Task", infoLayout.transform, "", 22, FontStyle.Normal, _muted, TextAnchor.MiddleLeft);
+            LayoutElement taskLe = _playTaskText.gameObject.AddComponent<LayoutElement>();
+            taskLe.minHeight = 28f;
+            _playTaskText.resizeTextForBestFit = true;
+            _playTaskText.resizeTextMinSize = 16;
+            _playTaskText.resizeTextMaxSize = 22;
+            _playTaskText.verticalOverflow = VerticalWrapMode.Overflow;
+
+            _playPauseButton = CreateButton("Pause", topRt, "ПАУЗА", _steel, _text, 26, 88f, 160f);
+            LayoutElement pauseLe = _playPauseButton.GetComponent<LayoutElement>();
+            pauseLe.minHeight = UiLayoutMetrics.MinTouchTargetHeight;
+            pauseLe.flexibleWidth = 0f;
+
+            // Instruction strip below the top bar, with a deliberate gap to prevent overlap.
+            _instructionPanel = CreatePanel("Instruction", _playScreen.transform, new Color(0.12f, 0.13f, 0.15f, 0.58f), 12);
+            RectTransform irt = _instructionPanel.GetComponent<RectTransform>();
+            irt.anchorMin = new Vector2(0.08f, UiLayoutMetrics.InstructionMinY01);
+            irt.anchorMax = new Vector2(0.92f, UiLayoutMetrics.InstructionMaxY01);
             irt.offsetMin = Vector2.zero;
             irt.offsetMax = Vector2.zero;
-            _playInstructionText = CreateText("InstructionText", instr.transform, "", 28, FontStyle.Normal, _text, TextAnchor.MiddleCenter);
+            _instructionPanel.GetComponent<Image>().raycastTarget = false;
+            _playInstructionText = CreateText("InstructionText", _instructionPanel.transform, "", 24, FontStyle.Normal, _text, TextAnchor.MiddleCenter);
             Stretch(_playInstructionText.rectTransform);
+            _playInstructionText.resizeTextForBestFit = true;
+            _playInstructionText.resizeTextMinSize = 16;
+            _playInstructionText.resizeTextMaxSize = 24;
+            _playInstructionText.verticalOverflow = VerticalWrapMode.Truncate;
             _playInstructionText.raycastTarget = false;
 
-            // Hint near bottom of center, above toolbar.
-            GameObject hint = CreatePanel("Hint", _playScreen.transform, new Color(0, 0, 0, 0), 0);
-            RectTransform hrt = hint.GetComponent<RectTransform>();
-            hrt.anchorMin = new Vector2(0.08f, 0.22f);
-            hrt.anchorMax = new Vector2(0.92f, 0.27f);
+            // Hint above the bottom toolbar; keeps the center play area open.
+            _hintPanel = CreatePanel("Hint", _playScreen.transform, new Color(0, 0, 0, 0), 0);
+            RectTransform hrt = _hintPanel.GetComponent<RectTransform>();
+            hrt.anchorMin = new Vector2(0.08f, UiLayoutMetrics.HintMinY01);
+            hrt.anchorMax = new Vector2(0.92f, UiLayoutMetrics.HintMaxY01);
             hrt.offsetMin = Vector2.zero;
             hrt.offsetMax = Vector2.zero;
-            _playHintText = CreateText("HintText", hint.transform, "", 24, FontStyle.Normal, _amber, TextAnchor.MiddleCenter);
+            _hintPanel.GetComponent<Image>().raycastTarget = false;
+            _playHintText = CreateText("HintText", _hintPanel.transform, "", 22, FontStyle.Normal, _amber, TextAnchor.MiddleCenter);
             Stretch(_playHintText.rectTransform);
+            _playHintText.resizeTextForBestFit = true;
+            _playHintText.resizeTextMinSize = 14;
+            _playHintText.resizeTextMaxSize = 22;
             _playHintText.raycastTarget = false;
 
-            // Bottom toolbar <= 20%
+            // Bottom toolbar: compact, responsive, and high enough for touch.
             GameObject bottom = CreatePanel("BottomBar", _playScreen.transform, new Color(_panel.r, _panel.g, _panel.b, 0.86f), 0);
+            bottom.GetComponent<Image>().raycastTarget = false;
             RectTransform brt = bottom.GetComponent<RectTransform>();
-            AnchorBottom(brt, 0.20f);
+            AnchorBottom(brt, UiLayoutMetrics.BottomBarHeight01);
 
-            VerticalLayoutGroup bv = CreateVertical(brt, 10f, new RectOffset(16, 16, 12, 12));
+            VerticalLayoutGroup bv = CreateVertical(brt, 8f, new RectOffset(16, 16, 10, 10));
             bv.childAlignment = TextAnchor.UpperCenter;
             bv.childControlHeight = true;
             bv.childControlWidth = true;
@@ -600,31 +827,39 @@ namespace LittleGarage
 
             _playProgressSlider = CreateSlider(bv.transform, _steel, _amber);
             _playProgressSlider.interactable = false;
-            _playProgressSlider.gameObject.AddComponent<LayoutElement>().preferredHeight = 28;
+            MakeSliderVisualOnly(_playProgressSlider);
+            LayoutElement sliderLe = _playProgressSlider.gameObject.AddComponent<LayoutElement>();
+            sliderLe.preferredHeight = 22f;
+            sliderLe.minHeight = 20f;
+            sliderLe.flexibleHeight = 0f;
 
-            GameObject tools = new GameObject("Tools", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            GameObject tools = new GameObject("Tools", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
             tools.transform.SetParent(bottom.transform, false);
             _toolBar = tools.GetComponent<RectTransform>();
             HorizontalLayoutGroup hg = tools.GetComponent<HorizontalLayoutGroup>();
-            hg.spacing = 10f;
-            hg.padding = new RectOffset(4, 4, 0, 0);
+            hg.spacing = 8f;
+            hg.padding = new RectOffset(2, 2, 0, 0);
             hg.childAlignment = TextAnchor.MiddleCenter;
             hg.childControlWidth = true;
             hg.childControlHeight = true;
             hg.childForceExpandWidth = true;
-            hg.childForceExpandHeight = true;
-            LayoutElement tle = tools.AddComponent<LayoutElement>();
-            tle.flexibleHeight = 1;
-            tle.minHeight = 110;
+            hg.childForceExpandHeight = false;
+            LayoutElement tle = tools.GetComponent<LayoutElement>();
+            tle.flexibleHeight = 0f;
+            tle.minHeight = UiLayoutMetrics.MinTouchTargetHeight;
+            tle.preferredHeight = UiLayoutMetrics.ToolButtonPreferredHeight;
         }
 
         private void BuildCompleteScreen()
         {
-            CreateImage("Bg", _completeScreen.transform, new Color(0.06f, 0.07f, 0.09f, 0.88f)).rectTransform.StretchFull();
+            Image bg = CreateImage("Bg", _completeScreen.transform, new Color(0.06f, 0.07f, 0.09f, 0.72f));
+            bg.rectTransform.StretchFull();
+            bg.raycastTarget = true; // modal result screen: no input leaks to play area.
+
             GameObject card = CreatePanel("Card", _completeScreen.transform, _panel, 24);
             RectTransform crt = card.GetComponent<RectTransform>();
-            crt.anchorMin = new Vector2(0.08f, 0.18f);
-            crt.anchorMax = new Vector2(0.92f, 0.82f);
+            crt.anchorMin = new Vector2(0.10f, 0.18f);
+            crt.anchorMax = new Vector2(0.90f, 0.82f);
             crt.offsetMin = Vector2.zero;
             crt.offsetMax = Vector2.zero;
 
@@ -652,12 +887,12 @@ namespace LittleGarage
         {
             _pausePanel = CreatePanel("PausePanel", _playScreen.transform, new Color(0f, 0f, 0f, 0.72f), 0);
             Stretch(_pausePanel.GetComponent<RectTransform>());
-            _pausePanel.SetActive(false);
+            _pausePanel.GetComponent<Image>().raycastTarget = true;
 
             GameObject card = CreatePanel("Card", _pausePanel.transform, _panel, 20);
             RectTransform crt = card.GetComponent<RectTransform>();
-            crt.anchorMin = new Vector2(0.12f, 0.22f);
-            crt.anchorMax = new Vector2(0.88f, 0.78f);
+            crt.anchorMin = new Vector2(0.14f, 0.20f);
+            crt.anchorMax = new Vector2(0.86f, 0.80f);
             crt.offsetMin = Vector2.zero;
             crt.offsetMax = Vector2.zero;
 
@@ -677,48 +912,69 @@ namespace LittleGarage
 
         private void BuildCustomizationPanel()
         {
-            _customizationPanel = CreatePanel("CustomizationPanel", _playScreen.transform, new Color(0.07f, 0.08f, 0.10f, 0.72f), 0);
+            _customizationPanel = new GameObject("CustomizationPanel", typeof(RectTransform));
+            _customizationPanel.transform.SetParent(_playScreen.transform, false);
             RectTransform rt = _customizationPanel.GetComponent<RectTransform>();
-            // Keep center clear: panel sits on bottom and sides via margins; use bottom sheet style.
-            rt.anchorMin = new Vector2(0.03f, 0.02f);
-            rt.anchorMax = new Vector2(0.97f, 0.36f);
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
-            _customizationPanel.SetActive(false);
+            Stretch(rt);
 
-            VerticalLayoutGroup v = CreateVertical(rt, 10f, new RectOffset(20, 20, 16, 16));
-            v.childAlignment = TextAnchor.UpperCenter;
-            v.childControlWidth = true;
-            v.childControlHeight = true;
-            v.childForceExpandWidth = true;
-            v.childForceExpandHeight = false;
+            // Transparent input blocker so customization is modal over gameplay.
+            Image blocker = _customizationPanel.AddComponent<Image>();
+            blocker.color = new Color(0f, 0f, 0f, 0.14f);
+            blocker.raycastTarget = true;
 
-            _customTitleText = CreateText("Title", v.transform, "Кастомизация", 38, FontStyle.Bold, _text, TextAnchor.MiddleCenter);
-            _customTitleText.gameObject.AddComponent<LayoutElement>().preferredHeight = 48;
+            // Bottom sheet keeps the car visible in the center.
+            GameObject sheet = CreatePanel("Sheet", _customizationPanel.transform, new Color(0.09f, 0.10f, 0.12f, 0.94f), 18);
+            RectTransform sheetRt = sheet.GetComponent<RectTransform>();
+            sheetRt.anchorMin = new Vector2(0.03f, 0.02f);
+            sheetRt.anchorMax = new Vector2(0.97f, 0.36f);
+            sheetRt.offsetMin = Vector2.zero;
+            sheetRt.offsetMax = Vector2.zero;
+            sheet.GetComponent<Image>().raycastTarget = true;
 
-            CreateText("ColorLabel", v.transform, "Цвет кузова", 26, FontStyle.Normal, _muted, TextAnchor.MiddleLeft).gameObject.AddComponent<LayoutElement>().preferredHeight = 32;
-            _colorRow = CreateRow(v.transform, 72f);
-            CreateText("RimLabel", v.transform, "Диски", 26, FontStyle.Normal, _muted, TextAnchor.MiddleLeft).gameObject.AddComponent<LayoutElement>().preferredHeight = 32;
-            _rimRow = CreateRow(v.transform, 72f);
-            CreateText("DecalLabel", v.transform, "Наклейки", 26, FontStyle.Normal, _muted, TextAnchor.MiddleLeft).gameObject.AddComponent<LayoutElement>().preferredHeight = 32;
-            _decalRow = CreateRow(v.transform, 72f);
+            VerticalLayoutGroup shell = CreateVertical(sheetRt, 10f, new RectOffset(16, 16, 14, 14));
+            shell.childAlignment = TextAnchor.UpperCenter;
+            shell.childControlWidth = true;
+            shell.childControlHeight = true;
+            shell.childForceExpandWidth = true;
+            shell.childForceExpandHeight = false;
 
-            _customCommitButton = CreateButton("Commit", v.transform, "ГОТОВО", _teal, _text, 32, 96f);
+            _customTitleText = CreateText("Title", shell.transform, "Кастомизация", 34, FontStyle.Bold, _text, TextAnchor.MiddleCenter);
+            _customTitleText.gameObject.AddComponent<LayoutElement>().preferredHeight = 42;
+
+            ScrollRect scroll = CreateVerticalScroll(shell.transform, 8f, new RectOffset(0, 0, 0, 0));
+            _customContent = scroll.content;
+            LayoutElement scrollLe = scroll.gameObject.AddComponent<LayoutElement>();
+            scrollLe.flexibleHeight = 1f;
+            scrollLe.minHeight = 120f;
+
+            CreateText("ColorLabel", _customContent, "Цвет кузова", 24, FontStyle.Normal, _muted, TextAnchor.MiddleLeft)
+                .gameObject.AddComponent<LayoutElement>().preferredHeight = 30;
+            _colorRow = CreateRow(_customContent, 68f);
+            CreateText("RimLabel", _customContent, "Диски", 24, FontStyle.Normal, _muted, TextAnchor.MiddleLeft)
+                .gameObject.AddComponent<LayoutElement>().preferredHeight = 30;
+            _rimRow = CreateRow(_customContent, 68f);
+            CreateText("DecalLabel", _customContent, "Наклейки", 24, FontStyle.Normal, _muted, TextAnchor.MiddleLeft)
+                .gameObject.AddComponent<LayoutElement>().preferredHeight = 30;
+            _decalRow = CreateRow(_customContent, 68f);
+
+            _customCommitButton = CreateButton("Commit", shell.transform, "ГОТОВО", _teal, _text, 30, 88f);
+            _customCommitButton.GetComponent<LayoutElement>().minHeight = UiLayoutMetrics.MinTouchTargetHeight;
         }
 
         private RectTransform CreateRow(Transform parent, float height)
         {
-            GameObject row = new GameObject("Row", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            GameObject row = new GameObject("Row", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
             row.transform.SetParent(parent, false);
-            LayoutElement le = row.AddComponent<LayoutElement>();
+            LayoutElement le = row.GetComponent<LayoutElement>();
             le.preferredHeight = height;
+            le.minHeight = UiLayoutMetrics.MinTouchTargetHeight;
             HorizontalLayoutGroup h = row.GetComponent<HorizontalLayoutGroup>();
-            h.spacing = 10f;
-            h.childAlignment = TextAnchor.MiddleLeft;
+            h.spacing = 8f;
+            h.childAlignment = TextAnchor.MiddleCenter;
             h.childControlWidth = true;
             h.childControlHeight = true;
             h.childForceExpandWidth = true;
-            h.childForceExpandHeight = true;
+            h.childForceExpandHeight = false;
             return row.GetComponent<RectTransform>();
         }
 
@@ -726,12 +982,12 @@ namespace LittleGarage
         {
             _settingsPanel = CreatePanel("SettingsPanel", _safeRoot, new Color(0f, 0f, 0f, 0.72f), 0);
             Stretch(_settingsPanel.GetComponent<RectTransform>());
-            _settingsPanel.SetActive(false);
+            _settingsPanel.GetComponent<Image>().raycastTarget = true;
 
             GameObject card = CreatePanel("Card", _settingsPanel.transform, _panel, 20);
             RectTransform crt = card.GetComponent<RectTransform>();
-            crt.anchorMin = new Vector2(0.1f, 0.18f);
-            crt.anchorMax = new Vector2(0.9f, 0.82f);
+            crt.anchorMin = new Vector2(0.12f, 0.16f);
+            crt.anchorMax = new Vector2(0.88f, 0.84f);
             crt.offsetMin = Vector2.zero;
             crt.offsetMax = Vector2.zero;
 
@@ -791,7 +1047,7 @@ namespace LittleGarage
             _homePlayButton.onClick.AddListener(() =>
             {
                 PlayUiClick();
-                ShowGarage(_progress);
+                // GameManager owns the transition; UIManager only raises the request.
                 GarageRequested?.Invoke();
             });
             _homeSoundButton.onClick.AddListener(() =>
@@ -824,14 +1080,14 @@ namespace LittleGarage
             _customCommitButton.onClick.AddListener(() =>
             {
                 PlayUiClick();
-                _customizationPanel.SetActive(false);
+                HideCustomization();
                 CustomizationCommitted?.Invoke();
             });
 
             _settingsCloseButton.onClick.AddListener(() =>
             {
                 PlayUiClick();
-                _settingsPanel.SetActive(false);
+                CloseSettings();
             });
 
             _musicToggle.onValueChanged.AddListener(v =>
@@ -868,9 +1124,20 @@ namespace LittleGarage
 
         private void OpenSettings()
         {
+            EnsureBuilt();
+            if (_settingsVisible) return;
+            _settingsReturnOverlay = ActiveOverlay;
             SyncSettingsUI();
-            _settingsPanel.SetActive(true);
-            _settingsPanel.transform.SetAsLastSibling();
+            ApplyVisibility(_currentScreen, _pauseVisible, _customizationVisible, true, false, false);
+        }
+
+        private void CloseSettings()
+        {
+            if (!_settingsVisible) return;
+            UiOverlay back = _settingsReturnOverlay;
+            _settingsReturnOverlay = UiOverlay.None;
+            ApplyVisibility(_currentScreen, back == UiOverlay.Pause, back == UiOverlay.Customization,
+                false, back == UiOverlay.None, back == UiOverlay.None);
         }
 
         private void SyncSettingsUI()
@@ -955,11 +1222,6 @@ namespace LittleGarage
 
         private void BuildToolButtons(JobDef job, string selectedLabel, JobTaskDef activeTask = null, int taskIndex = -1)
         {
-            for (int i = 0; i < _toolButtons.Count; i++)
-            {
-                if (_toolButtons[i].Root != null) Destroy(_toolButtons[i].Root);
-            }
-            _toolButtons.Clear();
             if (_toolBar == null) return;
 
             List<string> labels = new List<string>(6);
@@ -1017,6 +1279,27 @@ namespace LittleGarage
                 }
             }
 
+            // Same tool set: update in place so repeated ShowPlay calls do not create
+            // duplicate objects during the frame in which Destroy() is deferred.
+            if (_toolButtons.Count == labels.Count)
+            {
+                for (int i = 0; i < labels.Count; i++)
+                {
+                    ToolButton tb = _toolButtons[i];
+                    if (tb == null) continue;
+                    tb.ToolId = ids[i];
+                    if (tb.Label != null) tb.Label.text = labels[i];
+                    if (tb.Icon != null) tb.Icon.color = colors[i];
+                    bool locked = selectedIndex >= 0 && i > selectedIndex;
+                    tb.Button.interactable = !locked;
+                    SetToolSelectedVisual(tb, i == selectedIndex || (selectedIndex < 0 && i == 0));
+                    if (locked && tb.Background != null)
+                        tb.Background.color = new Color(_panelSoft.r * 0.55f, _panelSoft.g * 0.55f, _panelSoft.b * 0.55f, 0.9f);
+                }
+                return;
+            }
+
+            ClearToolButtons();
             for (int i = 0; i < labels.Count; i++)
             {
                 ToolButton tb = CreateToolButton(_toolBar, labels[i], ids[i], colors[i]);
@@ -1051,20 +1334,22 @@ namespace LittleGarage
         {
             GameObject root = CreatePanel("Tool_" + id, parent, _panelSoft, 14);
             LayoutElement le = root.AddComponent<LayoutElement>();
-            le.minHeight = 96;
-            le.preferredHeight = 110;
+            le.minHeight = UiLayoutMetrics.MinTouchTargetHeight;
+            le.preferredHeight = UiLayoutMetrics.ToolButtonPreferredHeight;
             le.flexibleWidth = 1;
 
             Button btn = root.AddComponent<Button>();
             btn.transition = Button.Transition.ColorTint;
             Image bg = root.GetComponent<Image>();
+            btn.targetGraphic = bg;
             ColorBlock cb = btn.colors;
             cb.normalColor = Color.white;
             cb.highlightedColor = new Color(1.05f, 1.05f, 1.05f, 1f);
             cb.pressedColor = new Color(0.92f, 0.92f, 0.92f, 1f);
+            cb.disabledColor = new Color(0.72f, 0.72f, 0.72f, 0.65f);
             btn.colors = cb;
 
-            VerticalLayoutGroup v = CreateVertical(root.transform, 4f, new RectOffset(8, 8, 10, 10));
+            VerticalLayoutGroup v = CreateVertical(root.transform, 2f, new RectOffset(6, 6, 8, 8));
             v.childAlignment = TextAnchor.MiddleCenter;
             v.childControlWidth = true;
             v.childControlHeight = true;
@@ -1073,7 +1358,7 @@ namespace LittleGarage
 
             var iconWrap = new GameObject("IconWrap", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
             iconWrap.transform.SetParent(v.transform, false);
-            iconWrap.GetComponent<LayoutElement>().preferredHeight = 36;
+            iconWrap.GetComponent<LayoutElement>().preferredHeight = 28;
             HorizontalLayoutGroup ih = iconWrap.GetComponent<HorizontalLayoutGroup>();
             ih.childAlignment = TextAnchor.MiddleCenter;
             ih.childControlWidth = false;
@@ -1082,15 +1367,18 @@ namespace LittleGarage
             ih.childForceExpandHeight = true;
             Image iconImg = CreateImage("Icon", iconWrap.transform, accent);
             iconImg.sprite = _circleSprite;
-            iconImg.rectTransform.sizeDelta = new Vector2(30, 30);
+            iconImg.rectTransform.sizeDelta = new Vector2(24, 24);
 
-            Text t = CreateText("Label", v.transform, label, 22, FontStyle.Bold, _text, TextAnchor.MiddleCenter);
-            t.gameObject.AddComponent<LayoutElement>().preferredHeight = 52;
+            Text t = CreateText("Label", v.transform, label, 20, FontStyle.Bold, _text, TextAnchor.MiddleCenter);
+            LayoutElement labelLe = t.gameObject.AddComponent<LayoutElement>();
+            labelLe.minHeight = 34f;
+            labelLe.flexibleHeight = 1f;
             t.resizeTextForBestFit = true;
-            t.resizeTextMinSize = 16;
-            t.resizeTextMaxSize = 24;
+            t.resizeTextMinSize = 13;
+            t.resizeTextMaxSize = 20;
+            t.verticalOverflow = VerticalWrapMode.Overflow;
 
-            ToolButton tb = new ToolButton { Root = root, Button = btn, Background = bg, Label = t, ToolId = id };
+            ToolButton tb = new ToolButton { Root = root, Button = btn, Background = bg, Icon = iconImg, Label = t, ToolId = id };
             btn.onClick.AddListener(() =>
             {
                 PlayUiClick();
@@ -1187,7 +1475,12 @@ namespace LittleGarage
         private void ClearRow(RectTransform row, List<Button> buttons)
         {
             if (row == null) return;
-            for (int i = row.childCount - 1; i >= 0; i--) Destroy(row.GetChild(i).gameObject);
+            for (int i = row.childCount - 1; i >= 0; i--)
+            {
+                GameObject child = row.GetChild(i).gameObject;
+                child.transform.SetParent(null, false);
+                Destroy(child);
+            }
             buttons.Clear();
         }
 
@@ -1216,13 +1509,13 @@ namespace LittleGarage
 
         private Button CreateTextOptionButton(Transform parent, string label)
         {
-            Button btn = CreateButton(label, parent, label, _panelSoft, _text, 22, 72f);
+            Button btn = CreateButton(label, parent, label, _panelSoft, _text, 20, 68f);
             Text t = btn.GetComponentInChildren<Text>();
             if (t != null)
             {
                 t.resizeTextForBestFit = true;
                 t.resizeTextMinSize = 14;
-                t.resizeTextMaxSize = 24;
+                t.resizeTextMaxSize = 20;
             }
             return btn;
         }
@@ -1340,12 +1633,15 @@ namespace LittleGarage
 
             LayoutElement le = go.AddComponent<LayoutElement>();
             le.preferredHeight = height;
-            le.minHeight = Mathf.Max(96f, height * 0.8f);
+            le.minHeight = Mathf.Max(UiLayoutMetrics.MinTouchTargetHeight, height);
             if (preferredWidth > 0f) le.preferredWidth = preferredWidth;
 
             Text t = CreateText("Label", go.transform, label, fontSize, FontStyle.Bold, fg, TextAnchor.MiddleCenter);
             Stretch(t.rectTransform);
             t.raycastTarget = false;
+            t.resizeTextForBestFit = true;
+            t.resizeTextMinSize = Mathf.Max(14, fontSize - 10);
+            t.resizeTextMaxSize = fontSize;
             return btn;
         }
 
@@ -1354,7 +1650,7 @@ namespace LittleGarage
             GameObject root = new GameObject("Slider", typeof(RectTransform), typeof(Slider));
             root.transform.SetParent(parent, false);
             RectTransform rt = root.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(0f, 32f);
+            rt.sizeDelta = new Vector2(0f, 28f);
 
             Image bgImg = CreateImage("Background", root.transform, bg);
             bgImg.sprite = _roundedSoftSprite;
@@ -1422,6 +1718,54 @@ namespace LittleGarage
             t.graphic = check;
             t.isOn = true;
             return t;
+        }
+
+        private ScrollRect CreateVerticalScroll(Transform parent, float spacing, RectOffset padding)
+        {
+            var root = new GameObject("Scroll", typeof(RectTransform), typeof(ScrollRect));
+            root.transform.SetParent(parent, false);
+            Stretch(root.GetComponent<RectTransform>());
+
+            ScrollRect scroll = root.GetComponent<ScrollRect>();
+            scroll.horizontal = false;
+            scroll.vertical = true;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+
+            RectTransform viewport = CreatePanel("Viewport", root.transform, new Color(0f, 0f, 0f, 0f), 0).GetComponent<RectTransform>();
+            Stretch(viewport);
+            if (viewport.gameObject.GetComponent<RectMask2D>() == null)
+                viewport.gameObject.AddComponent<RectMask2D>();
+            scroll.viewport = viewport;
+
+            var content = new GameObject("Content", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+            content.transform.SetParent(viewport, false);
+            RectTransform crt = content.GetComponent<RectTransform>();
+            crt.anchorMin = new Vector2(0f, 1f);
+            crt.anchorMax = new Vector2(1f, 1f);
+            crt.pivot = new Vector2(0.5f, 1f);
+            crt.offsetMin = Vector2.zero;
+            crt.offsetMax = Vector2.zero;
+
+            VerticalLayoutGroup v = content.GetComponent<VerticalLayoutGroup>();
+            v.spacing = spacing;
+            v.padding = padding ?? new RectOffset();
+            v.childAlignment = TextAnchor.UpperCenter;
+            v.childControlWidth = true;
+            v.childControlHeight = true;
+            v.childForceExpandWidth = true;
+            v.childForceExpandHeight = false;
+            ContentSizeFitter fit = content.GetComponent<ContentSizeFitter>();
+            fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            scroll.content = crt;
+            return scroll;
+        }
+
+        private static void MakeSliderVisualOnly(Slider slider)
+        {
+            if (slider == null) return;
+            Graphic[] graphics = slider.GetComponentsInChildren<Graphic>(true);
+            for (int i = 0; i < graphics.Length; i++)
+                if (graphics[i] != null) graphics[i].raycastTarget = false;
         }
 
         private static VerticalLayoutGroup CreateVertical(Transform parent, float spacing, RectOffset padding)

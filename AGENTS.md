@@ -2,6 +2,7 @@
 
 ## CI / automation
 - **Always use the CI orchestrator** in `opencode-ci-orchestrator/` for GitHub Actions repairs. It owns commits and pushes; do not commit or push directly.
+- **Always push to `master`.** Other branches may be used locally for isolation, but the orchestrator must publish the final commit to `master` only.
 - Feed the orchestrator real failed-step logs and iterate until the workflow is green.
 - Never weaken, skip, or relabel tests/workflows to obtain a green result.
 - Protected workflow files require manual review. If the available token cannot push workflow changes, apply the reviewed change in the GitHub web UI, then let the orchestrator commit/push the remaining changes and verify the resulting run.

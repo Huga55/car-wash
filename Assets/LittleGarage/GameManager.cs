@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("LittleGarage.Tests.PlayMode")]
+
 namespace LittleGarage
 {
     /// <summary>Screen orchestrator and job sequencer. It owns the other managers
@@ -31,6 +33,7 @@ namespace LittleGarage
 
         private ScreenId _screen;
         private bool _paused;
+        private bool _finalizing;
         private bool _pointerDown;
         private bool _advancing;
         private float _advanceTimer;
@@ -56,9 +59,20 @@ namespace LittleGarage
         public VehicleInstance CurrentVehicle { get { return _car; } }
         public JobDef CurrentJob { get { return _levels != null ? _levels.Current : null; } }
         public bool IsPaused { get { return _paused; } }
+        public ScreenId Screen => _screen;
+        public bool IsFinaleActive => _finalizing || _finaleCoroutine != null;
+
+        /// <summary>Narrow seam used by PlayMode tests to trigger the already-implemented
+        /// finale path without simulating an entire wash cycle. Production default is unchanged.</summary>
+        internal void CompleteJobForTests()
+        {
+            if (_screen == ScreenId.Play) CompleteJob();
+        }
 
         public void Initialize(GameConfig config)
         {
+            // Bootstrap may call this more than once in tests; never duplicate systems or subscriptions.
+            if (_ui != null || _levels != null) return;
             _config = config != null ? config : GameConfig.CreateDefault();
             if (_config.vehicles == null || _config.vehicles.Length == 0 || _config.jobs == null || _config.jobs.Length == 0)
             {
@@ -115,8 +129,8 @@ namespace LittleGarage
             _input.PointerDown += OnPointerDown;
             _input.PointerMove += OnPointerMove;
             _input.PointerUp += OnPointerUp;
-            _input.OrbitDelta += d => { if (!_paused) _cameraRig.Orbit(d); };
-            _input.ZoomDelta += d => { if (!_paused) _cameraRig.Zoom(d); };
+            _input.OrbitDelta += d => { if (!_paused && !_finalizing && _screen == ScreenId.Play) _cameraRig.Orbit(d); };
+            _input.ZoomDelta += d => { if (!_paused && !_finalizing && _screen == ScreenId.Play) _cameraRig.Zoom(d); };
 
             _tools = gameObject.AddComponent<ToolController>();
             _tools.Changed += OnToolChanged;
@@ -133,7 +147,7 @@ namespace LittleGarage
 
         private void Update()
         {
-            if (_paused || _screen != ScreenId.Play || _car == null) return;
+            if (_paused || _finalizing || _screen != ScreenId.Play || _car == null) return;
             float dt = Mathf.Min(Time.deltaTime, 0.05f);
 
             if (_washing != null) _washing.Advance(dt);
@@ -170,9 +184,11 @@ namespace LittleGarage
         {
             _screen = ScreenId.Home;
             _paused = false;
+            Time.timeScale = 1f;
             _pointerDown = false;
             StopFinale();
             StopEffects();
+            if (_input != null) _input.SetPaintEnabled(false);
             DestroyCar();
             _garage.SetZone(WorkZone.WashBay);
             _ui.ShowHome(_progress);
@@ -183,8 +199,10 @@ namespace LittleGarage
         {
             _screen = ScreenId.Garage;
             _paused = false;
+            Time.timeScale = 1f;
             StopFinale();
             StopEffects();
+            if (_input != null) _input.SetPaintEnabled(false);
             DestroyCar();
             _ui.ShowGarage(_progress);
             _audio.PlayMusic("menu");
@@ -197,13 +215,12 @@ namespace LittleGarage
 
             _currentJobId = jobId;
             _paused = false;
-            _screen = ScreenId.Play;
+            Time.timeScale = 1f;
             _advancing = false;
             _taskIndex = 0;
             _pointerDown = false;
             StopFinale();
             StopEffects();
-            _input.SetPaintEnabled(true);
 
             DestroyCar();
             VehicleDef def = _config.Vehicle(job.vehicleId);
@@ -235,6 +252,9 @@ namespace LittleGarage
 
             _audio.PlayMusic("wash");
             _levels.StartJob(jobId);
+            // Only now, after the vehicle and level are valid, enter the Play screen.
+            _input.SetPaintEnabled(true);
+            _screen = ScreenId.Play;
             BeginTask(0);
         }
 
@@ -246,10 +266,16 @@ namespace LittleGarage
             _taskIndex = index;
 
             string toolLabel = string.Empty;
+            bool completeWithoutTools = false;
             switch (task.kind)
             {
                 case TaskKind.Wash:
-                    if (task.tools == null || task.tools.Length == 0) { OnTaskCompleted(); return; }
+                    if (task.tools == null || task.tools.Length == 0)
+                    {
+                        // Still show the HUD before completing; never leave the previous screen active.
+                        completeWithoutTools = true;
+                        break;
+                    }
                     _washing.Begin(_car, task.tools, _surface);
                     for (int i = 0; i < task.tools.Length; i++)
                     {
@@ -276,6 +302,11 @@ namespace LittleGarage
             _ui.ShowPlay(job, index + 1, job.tasks.Length, task.instructionRu, toolLabel, task);
             _ui.SetHint(task.titleRu);
             _ui.SetProgress(0f);
+            if (completeWithoutTools)
+            {
+                OnTaskCompleted();
+                return;
+            }
 
             if (task.kind == TaskKind.Paint || task.kind == TaskKind.Customize)
             {
@@ -379,6 +410,9 @@ namespace LittleGarage
             _progress.Complete(job.id, job.reward, look);
             _levels.CompleteCurrent();
             StopEffects();
+            _paused = false;
+            _pointerDown = false;
+            Time.timeScale = 1f;
             _screen = ScreenId.Complete;
             _input.SetPaintEnabled(false);
             _tools.SetAvailable(new WashTool[0]);
@@ -392,6 +426,7 @@ namespace LittleGarage
         private void StartFinale(JobDef job)
         {
             StopFinale();
+            _finalizing = true;
             _finaleRoot = new GameObject("Finale Showcase");
             _finaleCoroutine = StartCoroutine(FinaleRoutine(job));
         }
@@ -408,6 +443,7 @@ namespace LittleGarage
                 Destroy(_finaleRoot);
                 _finaleRoot = null;
             }
+            _finalizing = false;
         }
 
         private System.Collections.IEnumerator FinaleRoutine(JobDef job)
@@ -511,6 +547,7 @@ namespace LittleGarage
 
             // 5. Only now show the result screen.
             _ui.ShowComplete("Машина как новая!", job.titleRu + " — работа выполнена", job.reward);
+            _finalizing = false;
             _finaleCoroutine = null;
             if (_finaleRoot != null)
             {
@@ -642,8 +679,9 @@ namespace LittleGarage
 
         public void SetPaused(bool value)
         {
-            if (_screen != ScreenId.Play) return;
+            if (_screen != ScreenId.Play || _finalizing) return;
             _paused = value;
+            Time.timeScale = value ? 0f : 1f;
             _pointerDown = false;
             StopEffects();
             _ui.ShowPause(value);
@@ -807,6 +845,7 @@ namespace LittleGarage
 
         private void OnDestroy()
         {
+            Time.timeScale = 1f;
             StopFinale();
             if (_ui != null)
             {

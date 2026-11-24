@@ -1,4 +1,4 @@
-# Little Car Workshop — architecture contract (STEP 2 vertical slice)
+# Little Car Workshop — architecture contract (STEP 2 vertical slice + STEP 4 UI repair)
 
 Unity 2022.3.61f1, Built-in render pipeline, C# 9. All new runtime code lives under
 `Assets/LittleGarage/`. Legacy `Assets/Scripts/*` is kept only as history and must
@@ -10,6 +10,8 @@ not be referenced or started by new systems; `Assets/Scenes/Game.unity` boots on
 > **UNITY** = verified in Unity Editor (import/compile/tests/PlayMode);
 > **BUILD** = verified in a Windows build; **NOT** = still unverified / blocked.
 > Current slice: runtime + tests + build scripts CODE + OFFLINE; BUILD = NOT.
+> STEP 4 UI repair: CODE + OFFLINE (stubbed compile only). Unity Editor tests, Game View
+> captures, device checks and a build of this new UI commit are NOT verified here.
 > UNITY = partial: the user ran Unity 2022.3.61f1, which generated `ProjectSettings/*.asset`
 > and reported two rounds of diagnostics: 13 `CS1069` (missing `particlesystem`/`physics`
 > modules, fixed in `Packages/manifest.json`) and 2 `CS0117` plus 3 warnings
@@ -47,6 +49,7 @@ public enum WorkZone { WashBay, RepairBay, PaintBay }
 public enum TaskKind { Wash, Repair, Paint, Customize }
 public enum SurfaceChannel { Dirty=0, Wet=1, Foam=2, Polish=3 } // texture RGBA
 public enum ScreenId { Home, Garage, Play, Complete }
+public enum UiOverlay { None, Pause, Customization, Settings } // non-primary layers
 ```
 
 ## Core definitions (`Core/Definitions.cs`)
@@ -216,8 +219,19 @@ public sealed class UIManager : MonoBehaviour {
   public void SetProgress(float value); public void SetHint(string text);
   public void ShowComplete(string title, string body, int reward);
   public void ShowPause(bool v); public void ShowCustomization(VehicleDef def);
+  public bool IsPointerOverUI(Vector2 screenPosition);
+  public ScreenId CurrentScreen { get; }
+  public ScreenId? ActivePrimaryScreen { get; }     // null unless exactly one primary is active
+  public UiOverlay ActiveOverlay { get; }
+  public bool IsPrimaryScreenActive(ScreenId screen);
+  public bool IsOverlayActive(UiOverlay overlay);
+  public int VisibleJobCardCount { get; }
+  public int ActiveToolButtonCount { get; }
+  public float ScalerMatch { get; }
+  public Vector2 ScalerReferenceResolution { get; }
   public event Action<string> JobSelected; public event Action<string> ToolSelected;
   public event Action PauseRequested, ResumeRequested, RestartRequested, HomeRequested, NextRequested;
+  public event Action GarageRequested;
   public event Action<int> ColorSelected, RimSelected, DecalSelected;
   public event Action CustomizationCommitted;
 }
@@ -233,6 +247,40 @@ individual mechanics. After the final wash stage it runs a 7+ second finale
 (gloss sweep, procedural driver/animal, explicit «Спасибо!», drive-away) before
 showing the result screen; the finale coroutine/root is stopped on restart/home/destroy.
 
+## UI screens and state ownership (STEP 4, CODE + OFFLINE only)
+
+All runtime UGUI is built once by `UIManager` under one `ScreenSpaceOverlay` Canvas
+(sorting order 100) and one `SafeRoot` that tracks `Screen.safeArea`. `EventSystem.current`
+is reused; a new one is created only if absent, and `StandaloneInputModule` is added only if
+missing (no duplicate input modules on restart).
+
+* Primary screens: `Home`, `Garage`, `Play`, `Complete` — mutually exclusive.
+* Non-primary layers: `UiOverlay.Pause`, `UiOverlay.Customization`, `UiOverlay.Settings` —
+  children/overlays of a primary screen; they never select a primary screen.
+* `UIManager.ApplyVisibility(...)` is the only visibility writer. All `Show*`/`Hide*`/settings
+  methods route through it; scattered `SetActive()` calls in unrelated scripts were removed.
+  `ActivePrimaryScreen`, `IsPrimaryScreenActive`, `ActiveOverlay`, `IsOverlayActive`,
+  `VisibleJobCardCount`, `ActiveToolButtonCount`, `ScalerMatch` and
+  `ScalerReferenceResolution` expose the state for QA/tests.
+* `GameManager` owns transitions: the home Play button only raises `GarageRequested`;
+  `ShowHome` / `ShowGarage` / `StartJob` reset `Time.timeScale = 1`, stop the finale and
+  clear transient state. `Initialize()` has a re-entry guard against duplicate systems and
+  subscriptions. `SetPaused()` guards on `ScreenId.Play` and `_finalizing` and sets
+  `timeScale` 0/1; `OnDestroy()` restores `timeScale = 1`.
+* Completion sets the logical `ScreenId.Complete` but keeps `Play` as the visual primary
+  during the 7+ second finale, hides gameplay chrome via `HideTools()` and blocks input;
+  `ShowComplete()` is called only at the end of `FinaleRoutine`. `_finalizing` /
+  `IsFinaleActive` gate pause, orbit, zoom, update and restart/home teardown.
+* `UI/UiLayoutMetrics.cs` is the shared layout contract used by `UIManager` and EditMode
+  tests: 1080x1920 reference, `MatchWidthOrHeight = 0.5` for every aspect (recomputed when
+  `Screen.width/height` changes), HUD band anchors, garage side insets, 96-unit minimum
+  touch target and 104-unit preferred tool height. Job/home/customization lists use
+  `ScrollRect` + `RectMask2D` + layout groups; decorative chrome has `raycastTarget = false`,
+  while pause/settings/result/customization have modal input blockers.
+
+Verification status of this section: implemented in code and stub-compiled offline; no Unity
+Editor or visual verification of these changes. See `REPORT.md` §11.
+
 ## Editor / QA (5-category status)
 
 * `Assets/Editor/BuildScript.cs` — CODE: `BuildWindows()`/`BuildWindowsCI()`, strict
@@ -246,6 +294,10 @@ showing the result screen; the finale coroutine/root is stopped on restart/home/
 * `Assets/LittleGarage/Tests/Editor` and `Tests/PlayMode` — CODE + OFFLINE compile:
   catalog, vehicle/UV coverage, six-stage wash cycle, tool lock, auto-finish,
   save/load, corrupt-save fallback, part state, scene boot smoke. Unity Editor tests: NOT.
+* STEP 4 tests (CODE + OFFLINE compile only, NOT executed in Unity): 7 PlayMode
+  `UiFlowTests` (screen exclusivity, pause/resume, restart duplication, home cleanup,
+  finale/result timing) and 5 EditMode `UiLayoutTests` (shared layout contract). The
+  pre-existing 13 tests were not modified.
 * `Packages/manifest.json` (CODE): `com.unity.test-framework 1.1.33`, `com.unity.ugui`,
   plus built-in modules — `ui`, `imgui`, `imageconversion`, `audio`, `unitywebrequest`,
   `jsonserialize`, `androidjni`, `uielements`, and (added after real Unity CS1069 errors)

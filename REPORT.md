@@ -295,3 +295,207 @@ scene/GUID validation, file-only EXE check), но **Unity не производ�
    категорий 3/4 в `README.md` и этом отчёте.
 
 Шаг 2 не может быть честно выполнен в текущем sandbox.
+
+---
+
+## 11. STEP 4 — COMPLETE UI/UX REPAIR, SCREEN FLOW AND RESPONSIVE LAYOUT (финальный отчёт по §14 `prompt.txt`)
+
+Дата: 2026-11-24. Правки находятся в `/tmp/opencode/wash-cars-ui`; код, тесты и CI в
+рамках этой документальной правки не изменялись. Разделы 1–10 описывают STEP 3 и предыдущие
+прогоны CI; их
+факты о Unity/артефактах **не применяются** к новому UI-коммиту. Ниже — честный статус именно
+STEP 4.
+
+### 1. Root causes discovered
+
+1. **Разрозненное управление видимостью.** `UIManager.SetScreen()` переключал только
+   четыре primary-экрана, а `ShowPause`, `ShowCustomization`, `ShowComplete`, `HideTools`,
+   `OpenSettings` и кнопки вызывали `SetActive()` напрямую. Параллельно состояние хранилось
+   в `GameManager._screen` и `UIManager._currentScreen`, то есть существовали два
+   расходящихся состояния экрана.
+2. **Home → garage.** Кнопка `PlayButton` и показывала garage через `ShowGarage(_progress)`,
+   и одновременно поднимала `GarageRequested`; при переходе через `GameManager` экран мог
+   остаться в несогласованном состоянии.
+3. **Ранние возвраты.** `StartJob()` выставлял `_screen = ScreenId.Play` до проверки job/vehicle,
+   а `BeginTask()` при пустых `task.tools` вызывал `OnTaskCompleted()` и возвращался **до**
+   `ShowPlay()`. Garage/HUD могла остаться видимой за игровым экраном.
+4. **CanvasScaler.** Portrait-референс 1080x1920 использовал `Match Width Or Height` с
+   одноразовым `matchWidthOrHeight = 0.2f` в landscape (`MatchForCurrentScreen()`),
+   без пересчёта при смене разрешения. Это давало переполнение/обрезание на альбомных
+   и нестандартных aspect ratio.
+5. **Task selection.** Счётчик задач имел фиксированную высоту и мог обрезаться; у job cards
+   не было ограничений ширины внутри `ScrollRect` (отсутствовали согласованные
+   `LayoutElement`/`ContentSizeFitter`/insets), поэтому карточки занимали почти всю ширину,
+   нижняя часть списка была недостижима, скролл работал ненадёжно.
+6. **Gameplay HUD.** Инструкция перекрывала заголовок/сцену, нижняя панель занимала 20% экрана,
+   прозрачные панели HUD имели `raycastTarget = true` и перехватывали клики/тач по машине.
+7. **Пауза.** `SetPaused()` не менял `Time.timeScale`; игровое время продолжало идти.
+8. **Complete/finale.** `GameManager` скрывал игровые контролы внешним `HideTools()`, но
+   логический `ScreenId.Complete` и визуальный primary-экран расходились: результат должен
+   показываться только после 7+ секунд финала, а состояние экрана уже было другим.
+9. **Модальные слои.** Pause, Customization и Settings включались независимо и могли
+   сосуществовать; у results/pause/settings/customization не было надёжных input-блокеров.
+10. **Tool buttons.** Каждый `ShowPlay()` удалял и пересоздавал кнопки через `Destroy()`,
+    отложенный до конца кадра, поэтому в течение кадра возникали временные дубликаты.
+11. **Ввод/EventSystem.** Отсутствовала проверка уже существующего `StandaloneInputModule`;
+    повторная инициализация могла создать дубликат.
+
+### 2. Screens and components modified
+
+| Экран / компонент | Что изменено |
+|---|---|
+| Main menu / Home (`UIManager.BuildHomeScreen`) | scrollable контент, best-fit заголовок/подзаголовок, progress card, компактные кнопки, `GarageRequested` вместо прямого показа garage |
+| Task selection / Garage | header с back/title/counter, constrained content insets, `ScrollRect` + `RectMask2D` + `VerticalLayoutGroup` + `ContentSizeFitter`, перерабатываемые job cards |
+| Gameplay HUD | отдельные `_topBar`, `_instructionPanel`, `_hintPanel`, `_toolBar`, best-fit текст, `raycastTarget = false` для декора |
+| Pause | overlay на `Play`, modal blocker, resume/restart/home/sound, `timeScale` 0/1 |
+| Result / Complete | модальный фон, карточка с тремя действиями, показывается только после finale |
+| Customization sheet | нижний sheet + input blocker + scrollable options rows, минимальная высота касания |
+| Settings dialog | `OpenSettings`/`CloseSettings` через `ApplyVisibility`, возврат в предыдущий overlay, modal blocker |
+| Tool panel | in-place обновление кнопок, locked/disabled состояния, 96/104 unit touch targets |
+| CanvasScaler / safe area | `UiLayoutMetrics`, `match = 0.5`, recompute on resolution change, `SafeRoot` по `Screen.safeArea` |
+| `GameManager.cs` | screen orchestration, re-entry guard, `timeScale`, finale `_finalizing` guard, input blocking, `CompleteJobForTests()` seam |
+| `Core/GameTypes.cs` | добавлен `UiOverlay { None, Pause, Customization, Settings }` |
+| `UI/UiLayoutMetrics.cs` (новый файл) | единый контракт layout-значений и чистые функции для тестов |
+
+### 3. Screen management changes
+
+* Единственный authoritative writer видимости — `UIManager.ApplyVisibility(...)`; все
+  primary-screen и overlay переходы идут через него. Primary screens (`Home`, `Garage`,
+  `Play`, `Complete`) взаимно исключительны; `Pause`, `Customization`, `Settings` — только
+  overlays и никогда не выбирают primary screen. Settings запоминает overlay-возврат
+  (`_settingsReturnOverlay`).
+* Добавлены introspection-свойства: `ActivePrimaryScreen` (возвращает `null`, если активно
+  не ровно один primary), `IsPrimaryScreenActive`, `ActiveOverlay`, `IsOverlayActive`,
+  `VisibleJobCardCount`, `ActiveToolButtonCount`, `ScalerMatch`,
+  `ScalerReferenceResolution` (плюс прежний `CurrentScreen`).
+* `GameManager.Initialize()` имеет re-entry guard против повторных систем/подписок;
+  `ShowHome`/`ShowGarage`/`StartJob` восстанавливают `Time.timeScale = 1`, останавливают
+  finale и очищают transient-состояние; `SetPaused()` меняет `timeScale` 0/1; `OnDestroy()`
+  тоже восстанавливает `timeScale`.
+* `StartJob()` переходит в `Play` только после валидных `vehicle`/`level`; `BeginTask()`
+  показывает HUD даже для task без инструментов до завершения.
+* `CompleteJob()` выставляет логический `Complete`, вызывает `HideTools()` и запускает
+  finale; `_finalizing`/`IsFinaleActive` блокируют pause, orbit, zoom и игровой Update.
+  `ShowComplete()` вызывается только в конце `FinaleRoutine`; `StopFinale()` чистит
+  coroutine/root на home/restart/destroy.
+* `EnsureEventSystem()` переиспользует `EventSystem.current` и добавляет
+  `StandaloneInputModule` только при отсутствии; Canvas создаётся один раз.
+
+### 4. Responsive layout changes
+
+* `UiLayoutMetrics`: reference 1080x1920, `CanvasScaler.ScaleWithScreenSize`,
+  `ScreenMatchMode.MatchWidthOrHeight`, `match = 0.5` для всех orientation; значение
+  пересчитывается в `Update()` при изменении `Screen.width/height` (без одноразового
+  landscape-значения 0.2).
+* Garage content получает разные side insets для portrait (0.06) и landscape (0.14) и
+  учитывает высоту header (0.12); header title/counter используют flexible/min widths и
+  best-fit вместо фиксированной высоты.
+* Home и customization list теперь scrollable (`ScrollRect`, `RectMask2D`, clamped movement,
+  layout groups + `ContentSizeFitter`) — нижний контент достижим.
+* Job cards ограничены шириной (`LayoutElement.flexibleWidth`, `minWidth = 0` у info),
+  текст wrap/best-fit, lock overlay не перехватывает raycast.
+* HUD-полосы разделены контрактом: top 0.12, instruction 0.78–0.845, hint 0.20–0.255,
+  bottom 0.17; `HudBandsAreSeparated()` проверяет отсутствие пересечений.
+* Bottom bar и tool targets компактнее (progress 22, tool min 96 / preferred 104), locked
+  инструменты визуально приглушены и `interactable = false`.
+* Декоративные image/text HUD имеют `raycastTarget = false`; pause/result/settings/
+  customization — modal blockers. Safe-area обработка через `SafeRoot` сохранена.
+
+### 5. Main menu fixes
+
+Title/subtitle и progress card переведены на best-fit + `LayoutElement` внутри scrollable
+контента; кнопки ИГРАТЬ / ЗВУК И НАСТРОЙКИ получили согласованные размеры и минимальную
+высоту касания; progress slider стал визуальным (`MakeSliderVisualOnly`). Кнопка ИГРАТЬ
+больше не показывает garage сама — только поднимает `GarageRequested`, переходом управляет
+`GameManager`.
+
+### 6. Task selection fixes
+
+Back/title/counter выровнены в header; счётчик имеет `minWidth = 96`, `preferredWidth = 140`,
+`flexibleWidth = 0` и не обрезается. Контент ограничен side insets и обрезается через
+`RectMask2D`; список использует `Clamped` vertical scroll, `VerticalLayoutGroup` и
+`ContentSizeFitter`. Карточки создаются по требованию (10 placeholders), имеют `minHeight = 128`,
+flexible width, wrap/best-fit текст, читаемые unlocked/completed/locked состояния.
+
+### 7. Gameplay HUD fixes
+
+Заголовок/этап и пауза вынесены в компактный top bar; instruction и hint — в отдельные
+полосы с зазорами; центральная область остаётся свободной для 3D-машины. Bottom bar
+уменьшен до 0.17 экрана, tool buttons обновляются на месте (без transient-дубликатов).
+`GameManager.OnPointerDown()` блокирует gameplay-ввод, если `UIManager.IsPointerOverUI()`
+попал по UI.
+
+### 8. Pause/result screen fixes
+
+Pause доступен только из `Play`, показывает overlay, не активирует другой primary screen,
+останавливает/возвращает `timeScale`, предоставляет resume/restart/home/settings и чистит
+эффекты. Result показывается только после сохранённого 7+ секундного finale; во время
+finale HUD/tools скрыты, primary остаётся `Play` для 3D-шоукейса, ввод заблокирован
+(`_finalizing` + `ScreenId.Complete`). Dialog result — модальный с input-блокером и
+навигацией next/restart/home. Повторные home/restart останавливают finale и coroutines.
+
+### 9. Tests added or updated
+
+Добавлено **7 PlayMode `UiFlowTests`** (Unity-тесты ещё не запускались):
+
+| Тест | Что утверждает |
+|---|---|
+| `ShowGarage_HidesMainMenu_AndLeavesExactlyOnePrimaryScreen` | после `ShowGarage(null)` активен только `Garage`, `Home` выключен, overlay нет |
+| `StartJob_HidesTaskSelection_AndShowsOnlyGameplay` | garage → job: `Play` — единственный primary, `VisibleJobCardCount == 0` |
+| `Pause_DoesNotActivateAnotherPrimaryScreen_AndResumeRestoresGameplay` | pause сохраняет `Play` единственным primary, активирует `Pause`, `timeScale == 0`; resume снимает overlay и возвращает `timeScale == 1` |
+| `Restart_KeepsOneCanvasOneEventSystem_AndOneToolButtonPerTool` | после повторных `StartJob`: количество Canvas/EventSystem/tool-кнопок неизменно, нет stale `Tool_` объектов |
+| `ReturnHome_ClearsGameplayOverlays_AndRestoresMainMenu` | home после pause: только `Home`, overlay нет, tools 0, `timeScale == 1` |
+| `Finale_KeepsGameplayVisible_UntilResultIsShown` | сразу после completion логический `Complete` + finale активен, но визуально `Play`, tools 0; после finale — `Complete`, `Play` выключен |
+| `AllTransitions_MaintainExactlyOnePrimaryScreen` | Home → Garage → Play → Pause → Resume → Home: ровно один primary на каждом шаге |
+
+Добавлено **5 EditMode `UiLayoutTests`** (только чистые данные контракта, не отрендеренный UI):
+
+| Тест | Что утверждает |
+|---|---|
+| `LayoutContract_UsesDeliberatePortraitReference` | reference resolution ровно 1080x1920 |
+| `LayoutContract_UsesOneDocumentedScalerMatchForEveryAspect` | `ScalerMatch == 0.5` для 16:9, 16:10, 4:3 и 3:4 |
+| `LayoutContract_HudBandsAreSeparated` | top/instruction/hint/bottom не пересекаются по anchor-границам |
+| `LayoutContract_GarageContentIsNarrowerInLandscape` | landscape side inset больше portrait |
+| `LayoutContract_ToolButtonsKeepMinimumTouchTarget` | preferred >= min >= 96 единиц |
+
+Существующие **13 тестов** (`GameFlowTests` 7, `WashCycleTests` 5, `SceneSmokeTests` 1)
+не изменялись.
+
+### 10. Actual test results
+
+* **Offline:** C# compile checks с stubbed Unity/NUnit прошли (`0 errors`); это только
+  компиляция, **не выполнение тестов в Unity**.
+* **Unity Editor:** EditMode/PlayMode не запускались; Unity в sandbox недоступен.
+* **CI:** новый UI-коммит ещё не запускался; зелёный результат workflow не заявляется.
+* **Game View / aspect ratios / screenshots:** не выполнялись.
+* **Android/Windows physical devices, Unity build:** не выполнялись.
+
+### 11. Screenshots captured
+
+Ноль. Ни один из 8 требуемых §12 скриншотов (главное меню, выбор задания, старт задания,
+этап мойки, другой инструмент, пауза, результат, другой aspect ratio) в этом sandbox не
+сделан. Визуальные
+улучшения **не подтверждены**.
+
+### 12. Remaining issues
+
+1. Запустить Unity Editor tests (7 новых PlayMode + 5 EditMode + прежние 13) и получить
+   чистый прогон CI на новом коммите.
+2. Пройти Play Mode вручную и снять 8 скриншотов минимум при 16:9, 16:10, 4:3 и узком
+   landscape; проверить clipping/overlap/layering и тач-цели.
+3. Проверить safe area и ввод на физическом Android-планшете и Windows.
+4. Собрать и проверить **полный** Windows player; требование артефакта сохраняется:
+   каталог с `LittleCarWorkshop.exe`, `UnityPlayer.dll` и `LittleCarWorkshop_Data/`, а не
+   только `.exe`. Ранее выпущенный **v1.1.0** имел проверенный полный артефакт, но этот
+   новый коммит ещё не собран и не опубликован.
+
+### 13. Implemented vs verified (5 категорий)
+
+| Категория | Статус STEP 4 |
+|---|---|
+| Implemented in code | ✅ Экраны, `ApplyVisibility`, `UiOverlay`, `UiLayoutMetrics`, layout, finale guards, 12 новых тестов |
+| Verified offline | ✅ Только stubbed C# compile; статические проверки исходников не заменяют Unity |
+| Verified in Unity Editor | ❌ Нет (import/compile/tests/PlayMode нового коммита не запускались) |
+| Verified in Game View at multiple aspect ratios | ❌ Нет (скриншоты/замеры не делались) |
+| Verified on physical Android/Windows devices | ❌ Нет |
+| Windows build / published artifact | ❌ Для нового коммита нет; v1.1.0 — предыдущий проверенный полный player |

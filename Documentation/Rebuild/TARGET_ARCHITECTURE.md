@@ -73,7 +73,7 @@ Assets/
 | RepairSystem | Ремонт | State machine деталей: broken/removed/replaced/fixed. | VehiclePart/PartController, InputRouter | PartDef, repair steps | Вызывает Complete event. |
 | Customization/PaintSystem | Покраска/кастомизация | Цвета, decals, rims, preview/apply. | VehicleInstance materials, UI | appearance options | Сохраняет appearance через ProgressManager. |
 | ProgressManager/SaveSystem | Сохранение | Profile load/save/reset, unlocks, stars, appearance. | File/PlayerPrefs/JSON | ProgressData | GameManager/JobManager читают и пишут. |
-| UIManager | UI | Экраны, HUD, buttons, hints, settings. | Localization, ProgressManager, events | view models | Эмитит команды, слушает state updates. |
+| UIManager | UI | Экраны, HUD, buttons, hints, settings; единственный writer видимости (`ApplyVisibility`). | ProgressManager, `UiLayoutMetrics`, events | view models, `ScreenId`, `UiOverlay` | Эмитит команды, слушает state updates; primary-экраны взаимно исключительны, overlays не выбирают primary. |
 | AudioManager | Звук | Music/SFX/loop buses, settings. | Audio assets/clips or procedural fallback | bus volumes, clip map | Gameplay/UI вызывают Play/SetLoop. |
 | VFXManager/Pool | Эффекты | Spawn/despawn particles/decals/simple feedback. | Prefabs/pools | pooled instances | Wash/repair/paint запрашивают эффекты. |
 
@@ -117,10 +117,10 @@ ProgressData {
 
 `Game.unity` содержит только bootstrap/root objects:
 - Bootstrap
-- EventSystem
+- EventSystem (переиспользуется; `StandaloneInputModule` добавляется только если отсутствует)
 - Main Camera + CameraRig
 - LightRig
-- UI root
+- UI root (один Canvas sortingOrder 100 + SafeRoot по `Screen.safeArea`)
 - Managers root (или создаётся Bootstrap-ом)
 
 Машины/инструменты/динамические объекты спавнятся runtime.
@@ -147,3 +147,26 @@ ProgressData {
 | 3 | Сделать 3D vertical slice: 1 garage, 1 car, wash+simple repair+paint. | Переоценка объёма. |
 | 4 | Обновить CI verification и build scripts. | Старый release flow сломается. |
 | 5 | Удалить/архивировать legacy scripts после стабилизации. | Потеря reference code. |
+
+## 10. STEP 4: UI screen ownership и responsive contract (реализовано, не визуально проверено)
+
+Целевая и текущая runtime-модель совпадают после STEP 4: один `UIManager` создаёт UI один раз
+и единственный меняет видимость через `ApplyVisibility(...)`. Разделы 1–9 остаются целевой
+архитектурой; ниже — конкретные контракты, добавленные в код.
+
+| Область | Контракт |
+|---|---|
+| Primary screens | `Home`, `Garage`, `Play`, `Complete` — ровно один активен; `ActivePrimaryScreen` возвращает `null` при 0 или >1 |
+| Overlays | `UiOverlay.Pause / Customization / Settings` — поверх primary, не выбирают новый primary; settings помнит overlay-возврат |
+| Переходы | `GameManager` ре-entry guard в `Initialize()`, `timeScale = 1` в home/garage/start, `timeScale = 0/1` в pause/resume, `_finalizing` guard для finale и ввода |
+| Finale | логический `Complete` выставляется сразу, но `ShowComplete()` только после 7+ секунд; HUD/tools скрываются, primary остаётся `Play` для 3D |
+| Layout | `UI/UiLayoutMetrics.cs`: 1080x1920, `MatchWidthOrHeight = 0.5` для всех аспектов, пересчёт на смену разрешения; insets garage 0.06 portrait / 0.14 landscape; top 0.12, instruction 0.78–0.845, hint 0.20–0.255, bottom 0.17; touch min 96 / preferred 104 |
+| Списки/ввод | ScrollRect + RectMask2D + layout groups для home/garage/customization; декоративные панели `raycastTarget = false`; pause/settings/result/customization — modal blockers; `EventSystem.current` + один input module |
+| Тесты | 7 PlayMode `UiFlowTests` + 5 EditMode `UiLayoutTests`; прежние 13 тестов не тронуты |
+
+**Статус проверки:** реализовано в коде, прошло только offline C# compile со stubbed
+Unity/NUnit. Unity Editor, Game View на 16:9/16:10/4:3 и узком landscape, физические
+Android/Windows-устройства и сборка этого коммита **не проверялись**; скриншоты не снимались.
+Подробный final report — `REPORT.md` §11. Windows-артефакт по-прежнему должен быть полным
+каталогом (`LittleCarWorkshop.exe`, `UnityPlayer.dll`, `LittleCarWorkshop_Data/`); v1.1.0
+был проверен ранее, новый коммит ещё не собран и не опубликован.
