@@ -209,6 +209,24 @@ Error: Failed to resolve the latest game-ci CLI release: GitHub API returned 403
 **Статус:** оба исправления — только код workflow. **Повторный прогон CI не выполнялся**;
 успех тестов не заявляется.
 
+### Раунд 6 — снова `Test run failed with exit code 1` без лога Unity
+
+После фикса `cliVersion` CLI снова кэшируется, образ скачивается, но в предоставленном
+фрагменте снова только `[ERROR] Error: Unable to find image ... locally` (это **хвост**
+сообщения об ошибке `docker run`, а не причина) и стек `System.run` → `reject(...)`.
+Разбор собранного бинаря `game-ci v0.1.77` подтверждает: строка `game-ci:14465` — это
+`reject(Object.assign(new Error(errorMessage), ...))` в `System.run`, т.е. завершился
+ненулевым кодом `docker run`. Настоящая причина печатается **до** этой строки в stdout
+контейнера (лог Unity), которого во фрагменте нет.
+
+**Fix (применён):** добавлен шаг `Summarize Unity test failure` (`if: failure()`), который
+в конце лога шага выводит последние 100 релевантных строк из
+`build/verification/*.log` (`Aborting batchmode`, `error CS…`, `Compilation failed`,
+`license`, `Exception`), либо явно сообщает, что логов нет — контейнер упал до старта Unity.
+
+**Статус:** изменение workflow. Причина падения Unity **по-прежнему не установлена**;
+успех тестов не заявляется.
+
 **Не запускались.** Ожидаемые тесты обнаружены в коде (но не в Unity Runner):
 
 | Тест | Покрытие (по коду) | Статус в Unity |

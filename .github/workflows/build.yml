@@ -44,9 +44,29 @@ jobs:
           cliVersion: v0.1.77
           artifactsPath: build/verification
 
+      # The CLI's final error is only Docker's pull output; the real reason
+      # lives in Unity's log. Re-print its decisive lines at the END of the
+      # step so they survive log truncation/copying.
+      - name: Summarize Unity test failure
+        if: failure()
+        shell: bash
+        run: |
+          set -uo pipefail
+          found=0
+          for f in build/verification/*.log; do
+            [ -f "$f" ] || continue
+            found=1
+            echo "===== $f ====="
+            grep -n -i -E 'aborting batchmode|error CS[0-9]+|compilation failed|scripts have compiler errors|exception|error:|failed|license' "$f" | tail -n 100 || true
+            echo "===== end $f ====="
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "No Unity logs found under build/verification - the container failed before Unity wrote a log."
+          fi
+
       # Must run even when the test step fails: playmode.log / editmode.log
       # and the result XMLs are the only place the real Unity failure reason
-      # is recorded (the CLI's final message is just Docker's pull output).
+      # is recorded.
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
