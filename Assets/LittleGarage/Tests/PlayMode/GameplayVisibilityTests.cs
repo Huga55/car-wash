@@ -72,7 +72,7 @@ namespace LittleGarage.Tests
             MeshCollider[] colliders = game.CurrentVehicle.PaintColliders;
             Assert.Greater(colliders.Length, 1, "Need at least two paint targets for a follow test.");
 
-            Vector2 firstScreen = cam.WorldToScreenPoint(colliders[0].bounds.center);
+            Vector2 firstScreen = game.ScreenPointForWorldForTests(colliders[0].bounds.center);
             game.SimulatePointerForTests(firstScreen, true);
             yield return null;
 
@@ -81,7 +81,7 @@ namespace LittleGarage.Tests
             Assert.IsTrue(stream.NozzleRenderer.enabled, "Nozzle visual must be enabled.");
             Vector3 firstTarget = stream.Target;
 
-            Vector2 secondScreen = cam.WorldToScreenPoint(colliders[colliders.Length / 2].bounds.center);
+            Vector2 secondScreen = game.ScreenPointForWorldForTests(colliders[colliders.Length / 2].bounds.center);
             game.SimulatePointerMoveForTests(secondScreen);
             yield return null;
 
@@ -107,7 +107,7 @@ namespace LittleGarage.Tests
             SurfaceStateSystem surface = game.CurrentVehicle.Surface;
             float before = surface.Cleanliness;
             Camera cam = Camera.main;
-            Vector2 screen = cam.WorldToScreenPoint(game.CurrentVehicle.PaintColliders[0].bounds.center);
+            Vector2 screen = game.ScreenPointForWorldForTests(game.CurrentVehicle.PaintColliders[0].bounds.center);
 
             game.SimulatePointerForTests(screen, true);
             yield return null;

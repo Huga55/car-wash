@@ -92,6 +92,21 @@ namespace LittleGarage
             RefreshHeldPointer(dt);
         }
 
+        /// <summary>
+        /// Converts a world point to the same pixel-space pointer coordinates that
+        /// PointerRay() consumes. It uses the camera's viewport projection so headless
+        /// render targets and real screens both round-trip through one coordinate system.
+        /// </summary>
+        internal Vector2 ScreenPointForWorldForTests(Vector3 world)
+        {
+            if (_camera == null) _camera = Camera.main;
+            if (_camera == null) return Vector2.zero;
+            Vector3 viewport = _camera.WorldToViewportPoint(world);
+            Rect pixels = PointerPixelRect();
+            return new Vector2(pixels.xMin + viewport.x * pixels.width,
+                               pixels.yMin + viewport.y * pixels.height);
+        }
+
         public void Initialize(GameConfig config)
         {
             // Bootstrap may call this more than once in tests; never duplicate systems or subscriptions.
@@ -214,18 +229,30 @@ namespace LittleGarage
         }
 
         /// <summary>
-        /// Builds a pointer ray by normalizing against the camera's own pixel rect.
-        /// Camera.WorldToScreenPoint emits coordinates in that same pixel space, but
-        /// Unity's ScreenPointToRay/ScreenToViewportPoint use the global Screen size.
-        /// Those agree in a normal player, yet in headless CI the camera has a render
-        /// target while Screen.width/height are empty, so the built-in conversions
-        /// miss every paint collider. Explicit pixel-rect math is the inverse of
-        /// WorldToScreenPoint on both real screens and batchmode render targets.
+        /// Pixel rectangle used by pointer coordinates. In a player this is the camera's
+        /// screen rect; in batchmode CI it is the headless render target. Keeping one
+        /// explicit source of truth avoids mixing global Screen dimensions with a camera
+        /// render target, which is what made headless raycasts miss every paint collider.
+        /// </summary>
+        private Rect PointerPixelRect()
+        {
+            if (_camera == null) return new Rect(0f, 0f, 0f, 0f);
+            Rect pixels = _camera.pixelRect;
+            if (pixels.width > 0f && pixels.height > 0f) return pixels;
+            RenderTexture target = _camera.targetTexture;
+            if (target != null) return new Rect(0f, 0f, target.width, target.height);
+            return new Rect(0f, 0f, UnityEngine.Screen.width, UnityEngine.Screen.height);
+        }
+
+        /// <summary>
+        /// Builds a pointer ray by normalizing against PointerPixelRect(). This is the
+        /// exact inverse of ScreenPointForWorldForTests() and of Input.mousePosition in
+        /// a normal player, while remaining valid when batchmode has no global screen.
         /// </summary>
         private Ray PointerRay(Vector2 screen)
         {
             if (_camera == null) return new Ray(Vector3.zero, Vector3.forward);
-            Rect pixels = _camera.pixelRect;
+            Rect pixels = PointerPixelRect();
             if (pixels.width <= 0f || pixels.height <= 0f)
                 return _camera.ScreenPointToRay(screen);
 
