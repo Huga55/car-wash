@@ -180,6 +180,35 @@ Error: Test run failed with exit code 1
 **Статус:** исправление в коде (workflow). **Повторный прогон CI не выполнялся** —
 результат «тесты прошли» не заявляется.
 
+### Раунды 4–5 — инфраструктура CI (после фикса coverage)
+
+Следующий прогон подтвердил, что `--no-coverageEnabled` больше нет и образ
+`unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3` успешно скачивается, но лог заканчивается
+стеком `game-ci` с `Test run failed with exit code 1` **до вывода лога Unity**. Причина в
+самом логе Unity, который в тот раз не был приложен; `Upload test results` также не выполнился,
+потому что шаг тестов упал.
+
+**Fix (применён):** `Upload test results` выполняется теперь всегда (`if: always()`,
+`if-no-files-found: warn`) — `playmode.log` / `editmode.log` и XML-результаты сохраняются и при
+падении тестов.
+
+Следующий прогон упал ещё раньше:
+
+```
+Error: Failed to resolve the latest game-ci CLI release: GitHub API returned 403.
+```
+
+**Root cause:** `cliVersion: latest` (значение по умолчанию action) заставляет
+`unity-test-runner@v4` запрашивать GitHub Releases API; на shared-раннерах лимит API часто
+отдаёт 403. До Unity дело снова не дошло.
+
+**Fix (применён):** в workflow явно зафиксирован `cliVersion: v0.1.77` — та же версия, что уже
+кэшировалась в предыдущем прогоне. По исходникам action, при не-`latest` версии API-запрос
+`resolveLatestTag()` не выполняется вообще.
+
+**Статус:** оба исправления — только код workflow. **Повторный прогон CI не выполнялся**;
+успех тестов не заявляется.
+
 **Не запускались.** Ожидаемые тесты обнаружены в коде (но не в Unity Runner):
 
 | Тест | Покрытие (по коду) | Статус в Unity |

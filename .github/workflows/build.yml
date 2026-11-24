@@ -38,6 +38,10 @@ jobs:
         with:
           unityVersion: 2022.3.61f1
           testMode: all
+          # `latest` makes the action call the GitHub Releases API to resolve
+          # the tag; on shared runners that API frequently returns 403
+          # (rate limit). Pinning skips the lookup and is fully cached.
+          cliVersion: v0.1.77
           artifactsPath: build/verification
 
       # Must run even when the test step fails: playmode.log / editmode.log
