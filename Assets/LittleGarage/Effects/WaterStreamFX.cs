@@ -91,20 +91,32 @@ namespace LittleGarage
 
         private Vector3 NozzlePoint
         {
-            get
-            {
-                if (_camera == null) return transform.position + new Vector3(0.9f, -0.55f, 1.5f);
-                return _camera.ViewportToWorldPoint(new Vector3(0.82f, 0.16f, 1.6f));
-            }
+            get { return ViewportToWorldSafe(new Vector3(0.82f, 0.16f, 1.6f)); }
         }
 
         private Vector3 GripPoint
         {
-            get
-            {
-                if (_camera == null) return transform.position + new Vector3(0.5f, -0.9f, 1.2f);
-                return _camera.ViewportToWorldPoint(new Vector3(0.68f, 0.04f, 1.3f));
-            }
+            get { return ViewportToWorldSafe(new Vector3(0.68f, 0.04f, 1.3f)); }
+        }
+
+        /// <summary>
+        /// Headless batchmode can report a zero-sized camera rect. Calling
+        /// ViewportToWorldPoint with that rect logs a Unity error, which makes every
+        /// PlayMode test fail before it reaches an assertion. Keep viewport placement
+        /// for real screens, and use a camera-relative world position when no pixel
+        /// rect is available.
+        /// </summary>
+        private Vector3 ViewportToWorldSafe(Vector3 viewport)
+        {
+            if (_camera != null && _camera.pixelRect.width > 0f && _camera.pixelRect.height > 0f)
+                return _camera.ViewportToWorldPoint(viewport);
+
+            Vector3 local = new Vector3(
+                (viewport.x - 0.5f) * 1.2f,
+                (viewport.y - 0.5f) * 0.9f,
+                viewport.z);
+            Transform anchor = _camera != null ? _camera.transform : transform;
+            return anchor.TransformPoint(local);
         }
 
         private void ApplyStyle(WashTool tool)

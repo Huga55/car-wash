@@ -12,6 +12,7 @@ namespace LittleGarage
         private float _targetDistance = 7.5f;
         private Vector3 _targetFocus;
         private float _smooth = 8f;
+        private RenderTexture _headlessTarget;
 
         private void Awake()
         {
@@ -70,25 +71,53 @@ namespace LittleGarage
 
         private void EnsureCamera()
         {
-            if (_camera != null) return;
-            _camera = Camera.main;
             if (_camera == null)
             {
-                GameObject go = new GameObject("Main Camera");
-                go.tag = "MainCamera";
-                _camera = go.AddComponent<Camera>();
+                _camera = Camera.main;
+                if (_camera == null)
+                {
+                    GameObject go = new GameObject("Main Camera");
+                    go.tag = "MainCamera";
+                    _camera = go.AddComponent<Camera>();
+                }
+                _camera.clearFlags = CameraClearFlags.SolidColor;
+                _camera.backgroundColor = new Color(0.62f, 0.72f, 0.82f, 1f);
+                // Game.unity ships an orthographic camera, but this rig's focus/zoom and
+                // FOV are authored for perspective. Without this the car framing never
+                // changes with cameraDistance and raycast targets are misframed.
+                _camera.orthographic = false;
+                _camera.nearClipPlane = 0.05f;
+                _camera.farClipPlane = 80f;
+                _camera.fieldOfView = 38f;
+                if (_camera.GetComponent<AudioListener>() == null)
+                    _camera.gameObject.AddComponent<AudioListener>();
             }
-            _camera.clearFlags = CameraClearFlags.SolidColor;
-            _camera.backgroundColor = new Color(0.62f, 0.72f, 0.82f, 1f);
-            // Game.unity ships an orthographic camera, but this rig's focus/zoom and
-            // FOV are authored for perspective. Without this the car framing never
-            // changes with cameraDistance and raycast targets are misframed.
-            _camera.orthographic = false;
-            _camera.nearClipPlane = 0.05f;
-            _camera.farClipPlane = 80f;
-            _camera.fieldOfView = 38f;
-            if (_camera.GetComponent<AudioListener>() == null)
-                _camera.gameObject.AddComponent<AudioListener>();
+
+            // Batchmode CI has no screen, so the camera pixel rect is empty and
+            // screen/viewport conversions log "out of view frustum" errors. Give it a
+            // real render target in that case; builds with a normal screen are unchanged.
+            if (_camera.targetTexture == null && _camera.pixelRect.width <= 0f && _camera.pixelRect.height <= 0f)
+            {
+                if (_headlessTarget == null)
+                {
+                    _headlessTarget = new RenderTexture(1280, 720, 24, RenderTextureFormat.ARGB32);
+                    _headlessTarget.name = "LittleGarage Headless Camera Target";
+                    _headlessTarget.Create();
+                }
+                _camera.targetTexture = _headlessTarget;
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (_headlessTarget != null)
+            {
+                if (_camera != null && _camera.targetTexture == _headlessTarget)
+                    _camera.targetTexture = null;
+                _headlessTarget.Release();
+                Destroy(_headlessTarget);
+                _headlessTarget = null;
+            }
         }
     }
 }
