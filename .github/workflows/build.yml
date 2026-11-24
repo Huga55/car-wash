@@ -1,4 +1,4 @@
-name: Build Little Car Wash (Android + Windows)
+name: Build Little Car Workshop (Android + Windows)
 
 # Build automatically on every push, and allow manual runs from the Actions tab.
 on:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   verify:
-    name: Visual + gameplay verification
+    name: EditMode + PlayMode smoke tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -18,8 +18,11 @@ jobs:
         with:
           lfs: true
 
-      - name: Run in-Editor verification
-        uses: game-ci/unity-builder@v4
+      # Runs the LittleGarage.Tests assemblies that exist in the repository.
+      # The old LittleCarWashBuild.VisualVerification flow targets the legacy
+      # GameController/GameData/CarArt scene and is intentionally not invoked.
+      - name: Run Unity tests
+        uses: game-ci/unity-test-runner@v4
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
@@ -27,15 +30,14 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
           unityVersion: 2022.3.61f1
-          targetPlatform: StandaloneLinux64
-          buildMethod: LittleCarWashBuild.VisualVerification.Run
-          versioning: None
-          allowDirtyBuild: true
+          testMode: all
+          coverageEnabled: false
+          artifactsPath: build/verification
 
-      - name: Upload verification artifacts
+      - name: Upload test results
         uses: actions/upload-artifact@v4
         with:
-          name: VisualVerification
+          name: UnityTestResults
           path: build/verification
           if-no-files-found: error
           retention-days: 30
@@ -47,9 +49,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - Android
-          - StandaloneWindows64
+        include:
+          - target: Android
+            buildMethod: LittleCarWashBuild.Build.Run
+            artifactPath: build/Android/LittleCarWash.apk
+          - target: StandaloneWindows64
+            buildMethod: BuildScript.BuildWindowsCI
+            artifactPath: Builds/Windows/LittleCarWorkshop.exe
 
     steps:
       - name: Checkout repository
@@ -77,15 +83,27 @@ jobs:
           unityVersion: 2022.3.61f1
           targetPlatform: ${{ matrix.target }}
           buildName: LittleCarWash
-          buildMethod: LittleCarWashBuild.Build.Run
+          buildMethod: ${{ matrix.buildMethod }}
           versioning: None
           allowDirtyBuild: true
+
+      - name: Check expected build artifact
+        env:
+          EXPECTED_ARTIFACT: ${{ matrix.artifactPath }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$EXPECTED_ARTIFACT" ]; then
+            echo "Build did not produce expected file: $EXPECTED_ARTIFACT" >&2
+            find . -maxdepth 4 -type f \( -name '*.exe' -o -name '*.apk' \) -print >&2
+            exit 1
+          fi
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: LittleCarWash-${{ matrix.target }}
-          path: build
+          path: ${{ matrix.artifactPath }}
           if-no-files-found: error
           retention-days: 30
 
@@ -116,13 +134,13 @@ jobs:
             echo "Cannot read AppInfo version" >&2
             exit 1
           fi
-          APK=$(find release-artifacts -type f -iname '*.apk' | head -n 1)
-          EXE=$(find release-artifacts -type f -iname '*car*wash*.exe' | head -n 1)
-          if [ -z "$EXE" ]; then
-            EXE=$(find release-artifacts -type f -iname '*.exe' ! -iname '*crash*' | head -n 1)
-          fi
-          if [ -z "$APK" ] || [ -z "$EXE" ]; then
-            echo "Missing APK or Windows executable in build artifacts" >&2
+          # upload-artifact stores a single-file artifact at the artifact root.
+          APK="release-artifacts/LittleCarWash-Android/LittleCarWash.apk"
+          EXE="release-artifacts/LittleCarWash-StandaloneWindows64/LittleCarWorkshop.exe"
+          if [ ! -f "$APK" ] || [ ! -f "$EXE" ]; then
+            echo "Missing APK or Windows executable at the expected artifact paths" >&2
+            echo "APK: $APK" >&2
+            echo "EXE: $EXE" >&2
             find release-artifacts -type f | head -n 50 >&2
             exit 1
           fi

@@ -1,138 +1,208 @@
-# Итоговый отчёт: Little Car Wash
+# Отчёт STEP 3: Unity recovery, validation & Windows build
 
-Дата: 23.11.2026  
-Целевая версия Unity: **2022.3.61f1**  
-Источник требований: `prompt.txt`, разделы 1–11.
+Дата: 2026-11-24  
+Unity target: **2022.3.61f1**, Built-in Render Pipeline  
+Рабочая директория: `/e/my/wash-cars`
 
-## Обозначения статусов
+## 1. Что изменилось в этом шаге
 
-- **РЕАЛИЗОВАНО** — изменение внесено в код проекта.
-- **ПРОВЕРЕНО ЛОКАЛЬНО** — подтверждено офлайн-компиляцией, smoke-тестом и процедурными изображениями.
-- **НЕ ПРОВЕРЕНО В UNITY** — требует запуска Unity Editor, Play Mode, устройства или CI.
-- **ЧАСТИЧНО** — код готов, но внешние условия (редактор, аудиоустройство, релиз) отсутствуют.
+**Никаких новых gameplay-фич не добавлялось** (STEP 3 §7). Что сделано:
 
----
+- `README.md`, `REPORT.md`, `ARCHITECTURE.md`, `IMPLEMENTATION_ROADMAP.md` — переведены
+  на **5-категорийный статус** (реализовано / offline / Unity Editor / Windows build / не проверено).
+- Добавлен `Documentation/Rebuild/PLAYMODE_VERIFICATION_CHECKLIST.md` — точный ручной
+  прогон с 6 точками скриншотов (§6).
+- **Исправлены реальные Unity compile-ошибки из `prompt.txt`**: в `Packages/manifest.json`
+  добавлены built-in модули `com.unity.modules.particlesystem`, `com.unity.modules.physics`
+  (13 ошибок `CS1069`) и `com.unity.modules.screencapture` (проактивно для PlayMode-теста).
+- **Восстановлен build scene list**: пользовательский Unity запуск перезаписал
+  `ProjectSettings/EditorBuildSettings.asset` в `m_Scenes: []`; возвращена запись
+  `Assets/Scenes/Game.unity` (guid `bbbb…`, enabled 1).
+- Исходный код STEP 2 не изменялся: `git status` сохраняет все предыдущие модификации
+  и untracked-файлы; не было `reset`/`clean`/commit/push.
 
-## 1. В чём была причина некорректных границ
+## 2. Проверка ProjectSettings (§2)
 
-**РЕАЛИЗОВАНО. ПРОВЕРЕНО ЛОКАЛЬНО.**
+### Исходное состояние (до запуска Unity пользователем)
 
-Причины было три, и все они находились в обработке поверхности, а не в вводе:
+`ProjectSettings/ProjectSettings.asset` отсутствовал, не был в `.gitignore` и никогда не
+коммитился; копий в `/e`, `/tmp`, Docker и альтернативного источника настроек не было.
+Поэтому поддельный `.asset` не создавался.
 
-- попадание в кузов определялось по статическому прямоугольнику `_washRect`, который не совпадал с текущим положением и масштабом машины;
-- силуэт строился только из альфа-канала спрайта, поэтому стёкла, колёса и фары считались окрашиваемой частью кузова и получали собственные ложные границы;
-- радиус кисти не зависел от масштаба автомобиля, а поздние непрозрачные детали перезаписывали флаг кузова, оставляя «фантомные» зоны мойки внутри корпуса.
+### Фактический результат: восстановление выполнено пользователем в Unity
 
-Исправление: `CarArt.Render(...)` теперь дополнительно возвращает `panelMask` — маску только окрашиваемых панелей. `WashSurface` использует `silhouette = alpha * panel`, публикует `BodyBounds` и `IsPaintable(u, v)`. `WashingController` проверяет попадание по живому `RectTransform` машины и дополнительно по окну 3×3 текселей, чтобы край маски не терял касание. Окрашивание вне силуэта не меняет прогресс ни на одной из трёх проверенных машин.
+После того как пользователь открыл проект в Unity, Editor сгенерировал полный набор файлов:
+`ProjectSettings.asset`, `AudioManager.asset`, `DynamicsManager.asset`, `EditorSettings.asset`,
+`GraphicsSettings.asset`, `InputManager.asset`, `MemorySettings.asset`, `NavMeshAreas.asset`,
+`PackageManagerSettings.asset`, `Physics2DSettings.asset`, `PresetManager.asset`,
+`QualitySettings.asset`, `TagManager.asset`, `TimeManager.asset`, `UnityConnectSettings.asset`,
+`VFXManager.asset`, `VersionControlSettings.asset`, `ClusterInputManager.asset`,
+а также `Packages/packages-lock.json` и `Assets/Editor/VisualVerification.cs.meta`.
+Это **реальный вывод Unity**, а не ручная фабрикация.
 
----
+Проверено содержимое сгенерированного:
 
-## 2. Как исправлена обработка поверхности
+| Настройка | Значение | Совместимость |
+|---|---|---|
+| `ProjectVersion.txt` | `m_EditorVersion: 2022.3.61f1`, revision `6c53ebaf375d` | ✅ точная версия подтверждена |
+| `activeInputHandler` (ProjectSettings.asset) | `0` = Input Manager (Old) | ✅ ожидает `InputRouter` |
+| `InputManager.asset` | ось `Mouse ScrollWheel` присутствует | ✅ scroll zoom работает |
+| `GraphicsSettings.asset` | `m_CustomRenderPipeline: {fileID: 0}` | ✅ Built-in RP, не URP/HDRP |
+| `EditorBuildSettings.asset` | изначально `m_Scenes: []` | ❌→✅ исправлено вручную: возвращён `Game.unity`, guid `bbbb…` |
 
-**РЕАЛИЗОВАНО. ПРОВЕРЕНО ЛОКАЛЬНО.**
+`EditorBuildSettings.asset` был перезаписан Unity без сцены — это ломало бы `BuildScript.cs`
+и старт билда. Запись восстановлена вручную в формате Unity 2022 (`!u!1045`, `serializedVersion: 2`).
+Файлы остаются **untracked** — коммит не выполнялся (STEP 3 §1 запрещает commit/push).
 
-Все состояния (грязь, вода, пена, губка, смывание, сушка) по-прежнему хранятся в одном наборе масок `WashSurface`. Замена инструмента или этапа не пересоздаёт маски и не возвращает грязь: переходы меняют только целевой слой. Сохранена шестизонная схема завершения и точный вызов загрузки текстуры — `_texture.SetPixels32(_dirtyMinX, _dirtyMinY, w, h, _upload, 0);`. Грязный прямоугольник расширяется вниз на 20 строк, чтобы потёки перерисовывались без полной загрузки текстуры.
+`Packages/packages-lock.json` сгенерирован **до** добавления трёх модулей в `manifest.json`,
+поэтому в нём ещё нет `particlesystem`/`physics`/`screencapture`. Unity обновит lock при
+следующем открытии; вручную lock не редактировался.
 
----
+## 3. Проверка Unity installation (§3)
 
-## 3. На сколько увеличен радиус воздействия
+| Проверка | Результат |
+|---|---|
+| `which unity/unity-editor/Unity.exe` | Не найдено. |
+| Стандартные пути (`/opt/Unity*`, `/usr/local/Unity*`, `/Applications/Unity*`, `C:\Program Files\Unity*`) | Не найдены. |
+| Env-переменные Unity | Не заданы. |
+| Пакеты (`dpkg -l \| grep -i unity`) | Нет. |
+| Docker | Daemon есть, но **образов нет**, license secrets нет. |
+| `pwsh` | Не установлен. |
 
-**РЕАЛИЗОВАНО. ПРОВЕРЕНО ЛОКАЛЬНО.**
+**Итог для sandbox:** Unity по-прежнему недоступен напрямую, но **пользователь запустил
+Unity вне sandbox** — это подтверждено сгенерированными `ProjectSettings/*.asset` с точной
+версией `2022.3.61f1 (6c53ebaf375d)` и реальными CS1069-ошибками в `prompt.txt`.
+Другие версии не использовались. Windows Build Support и лицензия по-прежнему не подтверждены.
 
-Базовый радиус увеличен на **25%**: `brushRadiusMultiplier = 1.25f` в инспекторе `GameController`, допустимый диапазон `0.8–1.6`. Коэффициент применяется в `WashingTools.Radius(stage, carScale, multiplier)` и дополнительно умножается на масштаб машины. Скорость обработки не увеличивалась. Офлайн-замер: отношение `1.250`; радиусы для седана/спортивной машины/автобуса — `0.110 / 0.103 / 0.116`. `PaintLine` интерполирует быстрый штрих, поэтому разрывы между отпечатками отсутствуют (проверено сравнением с 80 отдельными мазками).
+### Самый короткий надёжный путь (вручную)
 
----
+**Вариант A — машина пользователя (Unity уже открыт):**
 
-## 4. Как усилена разница между сухой и мокрой поверхностью
+1. Дождаться реимпорта изменённого `Packages/manifest.json`; Unity обновит `packages-lock.json`.
+2. Перекомпилировать проект и прислать новый Console/Editor log — ожидаемо 13 `CS1069` исчезнут.
+3. Убедиться, что в `File → Build Settings` сцена `Assets/Scenes/Game.unity` снова одна и включена
+   (мы восстановили её в `EditorBuildSettings.asset`, но стоит подтвердить в UI).
+4. Продолжить по разделам 4–7 этого отчёта.
+5. Для Windows build: подтвердить установленный модуль **Windows Build Support (IL2CPP/Mono)**
+   и активную лицензию.
 
-**РЕАЛИЗОВАНО. ПРОВЕРЕНО ЛОКАЛЬНО.**
+**Вариант B — CI (уже настроен в `.github/workflows/build.yml`):**
 
-Сухая машина — матовая грязь тёплого коричневого оттенка; намокание добавляет холодный синий слой, капли, вертикальные потёки и меняющиеся блики. Средний цвет оверлея в офлайн-снимке: сухой `116.6, 86.1, 55.5`, полностью мокрый `100.1, 110.1, 115.0` — синий канал вырос, красный упал. Никаких сеток, маркеров или отладочных прямоугольников в игровом виде нет; отдельная проверка `CheckDebugMarkers` ищет такие объекты в CI.
+- fork/пуш в GitHub + `secrets.UNITY_LICENSE`, `UNITY_SERIAL`, `UNITY_EMAIL`, `UNITY_PASSWORD`.
+- workflow сам прогоняет `unity-test-runner@v4` и `unity-builder@v4` с `unityVersion: 2022.3.61f1`.
+- В текущей среде секретов нет — запустить нельзя.
 
----
+## 4. Импорт и компиляция в Unity (§4)
 
-## 5. Как реализовано автоматическое завершение участков
+### Реальный результат: компиляция запускалась пользователем и **упала**
 
-**РЕАЛИЗОВАНО. ПРОВЕРЕНО ЛОКАЛЬНО.**
+В `prompt.txt` предоставлены 13 ошибок Unity C# компилятора (`CS1069`) из
+`Assets/LittleGarage/`:
 
-Порог `ZoneFinish = 0.82f` и условие завершения этапа не изменены. После его достижения игровой код вызывает `WashSurface.BeginCompletion(stage)`, затем в `AdvanceStage()` каждый кадр — `AdvanceCompletion(t)` в течение `Mathf.Clamp(stageTransitionSeconds, 0.5f, 1.2f)`. Ползунок прогресса следует за тем же значением. Мгновенный `FillCurrent(stage)` остался только как сервисный метод для редакторских проверок; в игровом переходе он больше не используется. Офлайн-проверка подтвердила плавный рост `0.00 → 0.50 → 1.00` без подмены текстуры в один кадр.
+| Тип | Файлы | Forwarded assembly | Требуемый built-in package |
+|---|---|---|---|
+| `ParticleSystem` | `Effects/EffectFx.cs` (5), `GameManager.cs` (2) | `UnityEngine.ParticleSystemModule` | `com.unity.modules.particlesystem` |
+| `RaycastHit` | `GameManager.cs` (3) | `UnityEngine.PhysicsModule` | `com.unity.modules.physics` |
+| `MeshCollider` | `Vehicles/VehicleInstance.cs` (3) | `UnityEngine.PhysicsModule` | `com.unity.modules.physics` |
 
----
+**Root cause:** `Packages/manifest.json` не содержал эти built-in module packages.
+asmdef `LittleGarage.Runtime` не использует `overrideReferences`, поэтому модули должны
+быть включены именно через manifest. Это была ошибка STEP 2 scaffolding, а не логики кода.
 
-## 6. Как улучшен эффект сушки
+**Fix (применён):** в `Packages/manifest.json` добавлены:
 
-**РЕАЛИЗОВАНО. ПРОВЕРЕНО ЛОКАЛЬНО.**
+```json
+"com.unity.modules.particlesystem": "1.0.0",
+"com.unity.modules.physics": "1.0.0",
+"com.unity.modules.screencapture": "1.0.0"
+```
 
-Во время сушки капли и потёки уменьшаются вместе с водяным слоем; после последней капли `FinishAll()` убирает остатки влаги и запускается ровно один проход полировочного блика (`BeginFinalShine` / `AdvanceFinalShine` / `EndFinalShine`). Блик — узкая диагональная полоса, а не вспышка всей поверхности. Итоговый цвет `243.3, 245.9, 231.9`: блестящий, но не белый и не пересвеченный (все каналы ниже 248). Промежуточное состояние сушки визуально отличается от финального.
+`com.unity.modules.screencapture` добавлен проактивно: `ScreenCapture.CaptureScreenshot`
+используется в `Tests/PlayMode/SceneSmokeTests.cs` и мог бы дать такую же CS1069 при
+компиляции test assemblies. Остальные используемые Unity API покрыты уже включёнными
+пакетами (`com.unity.ugui`, `com.unity.modules.ui`, `audio`, `jsonserialize`) или core module:
+полный scan типов в `Assets/LittleGarage/**/*.cs` выполнен, дополнительных пропусков нет.
 
----
+**Статус fix:** применён в коде, JSON проверен как валидный. **Повторной компиляции в Unity не было** —
+пользователь должен переоткрыть/перекомпилировать проект и прислать новый лог. До этого
+модуль «Unity Editor compile» остаётся **частично проверенным** (ошибки найдены и устранены,
+успех не подтверждён).
 
-## 7. На каких автомобилях проведено тестирование
+### Статические предпроверки (не заменяют Unity)
 
-**РЕАЛИЗОВАНО. ПРОВЕРЕНО ЛОКАЛЬНО.**
+- Все `.cs` в `Assets/LittleGarage/` имеют `.meta`; нет дублирующихся GUID.
+- `Bootstrap.cs.meta` GUID = сценный `m_Script` GUID = `9e3b1c5f4a8d2c7b6e5f4a3b2c1d0e9f`.
+- `Game.unity.meta` GUID = `EditorBuildSettings.asset` GUID = `bbbb…`; сцена одна и первая.
+- `ProjectVersion.txt` и все build-скрипты указывают `2022.3.61f1`.
+- Shader import и Runtime Initialize Order по-прежнему не подтверждены.
 
-Офлайн-проверка A–G прогоняет седан (`scale = 0.74`), спортивную машину (`0.82`) и автобус как крупный транспорт (`1.0`). Для каждого типа проверены маска кузова, попадание в панель и отказ попадания в стекло/колесо, доступность всех пяти этапов и радиус с учётом масштаба. Все 20 типов транспорта дополнительно рендерятся в smoke-тесте. Реальное касание пальцем и поведение в Play Mode не проверялись.
+## 5. Editor tests (§5)
 
----
+**Не запускались.** Ожидаемые тесты обнаружены в коде (но не в Unity Runner):
 
-## 8. Какие скриншоты созданы
+| Тест | Покрытие (по коду) | Статус в Unity |
+|---|---|---|
+| `WashCycleTests.FirstJob_HasCompleteSixStageWashCycle` | 6 этапов, sequential | Не запущен (есть только в исходниках) |
+| `WashCycleTests.VehicleFactory_CreatesSedanWithFullUvCoverage` | 8+ colliders, UV 256/256 | Не запущен |
+| `WashCycleTests.FullWashCycle_TransitionsSurfaceAndCompletesOncePerStage` | реальные переходы + Completed | Не запущен |
+| `WashCycleTests.WashingSystem_DoesNotAllowSkippingAhead` | tool lock | Не запущен |
+| `WashCycleTests.AutoFinish_ForcesCleanDryPolishedSurface` | auto-finish | Не запущен |
+| `GameFlowTests.*` / `SceneSmokeTests.*` | catalog/save/part/scene boot | Не запущены |
 
-**ЧАСТИЧНО.**
+Различение по §5: **discovered** — нет (Unity runner не запускался); **executed** — 0;
+**passed** — 0; **failed** — 0; **not executed** — все перечисленные выше.
+Оффлайн-harness STEP 2 остаётся отдельным доказательством и **не подменяет** Unity tests.
 
-В `Assets/Editor/VisualVerification.cs` подготовлены две группы снимков в `build/verification`:
+## 6. Play Mode (§6)
 
-- девять контрольных состояний: `State_01_DryDirty`, `State_02_PartialWet`, `State_03_FullWet`, `State_04_PartialFoam`, `State_05_FullFoam`, `State_06_PartialScrub`, `State_07_CleanWet`, `State_08_PartialDry`, `State_09_DryShiny` — они пишутся из тех же пикселей оверлея, которые загружаются в текстуру машины, и попарно сравниваются по цвету;
-- одиннадцать обязательных моментов Play Mode: `01_Play` … `11_FinalScreen`, плюс снимки пяти экранов на четырёх разрешениях.
+**Не тестировался.** Автоматические скриншоты невозможны без Editor; вместо выдуманных
+результатов подготовлен [PLAYMODE_VERIFICATION_CHECKLIST.md](Documentation/Rebuild/PLAYMODE_VERIFICATION_CHECKLIST.md)
+с точными действиями и 6 обязательными скриншотами:
 
-Локально созданы процедурные PNG-превью девяти состояний `/tmp/opencode/visual/State_01_DryDirty.png` … `State_09_DryShiny.png`, а также `all-cars.png`, `wash-stages.png`, `cars.txt`, `wash.txt`. Это изображения тех же пикселей оверлея, а не снимки Unity Game View. **Настоящие скриншоты Unity в этой среде не созданы**: нет Unity Editor и лицензии.
+1. Initial garage (Home screen)
+2. Vehicle before washing
+3. Foam stage
+4. Final clean vehicle
+5. Celebration
+6. Result screen
 
----
+Пока чеклист не пройден человеком, визуальное качество, camera framing, ввод, stage transitions
+и 7+ секунд финала остаются **не проверенными**.
 
-## 9. Как реализована музыка и звуки инструментов
+## 7. Windows build (§7)
 
-**РЕАЛИЗОВАНО. ПРОВЕРЕНО ЛОКАЛЬНО (без прослушивания).**
+**Не выполнялся.** EXE, data-папка и timestamped build log не созданы. `build-windows.ps1`
+и `BuildScript.cs` готовы и проверены статически (VERSION pin `2022.3.61f1`, strict version check,
+scene/GUID validation, file-only EXE check), но **Unity не производил сборку** —
+результат «build succeeded» не заявляется.
 
-`AudioHelper.cs` генерирует процедурные 22.05 kHz mono-клипы: три варианта фоновой музыки (`menu`, `wash`, `finale`) и по три варианта цикла для шланга, пены, губки, смывания и сушки. Создаются ровно пять переиспользуемых `AudioSource` — Music, Washing, UI, Characters, Ambient. Звук инструмента запускается только на мазке, громкость следует за скоростью движения и плавно падает до нуля при остановке; одинаковые циклы не накладываются. Музыка слегка приглушается во время активной мойки. Добавлены голоса животных, звук отъезда и игровые звуки карточки. Реального прослушивания не было.
+## 8. Статус по 5 категориям
 
----
+| Категория | Статус |
+|---|---|
+| 1. Реализовано в коде | ✅ STEP 2 slice + build/CI + тесты + чеклист |
+| 2. Проверено offline | ✅ STEP 2 compile/behavior/tests compile; STEP 3 static GUID/meta/version/path checks |
+| 3. Проверено в Unity Editor | ⚠️ Частично: Unity пользователем создал ProjectSettings и дал 13 `CS1069`; исправлено (§2, §4); повторная компиляция/tests/PlayMode — ❌ не подтверждены |
+| 4. Проверено в Windows build | ❌ Нет (EXE не собран) |
+| 5. Всё ещё не проверено | повторный import/compile после fix, Editor tests, Play Mode, 6 скриншотов, Windows EXE, Android, визуал/перф |
 
-## 10. Как реализованы настройки и микшер звука
+## 9. Точные оставшиеся блокеры
 
-**РЕАЛИЗОВАНО. ПРОВЕРЕНО ЛОКАЛЬНО (логика сохранения).**
+1. Повторная компиляция в Unity после исправления manifest — не выполнялась (Unity есть только у пользователя, не в sandbox).
+2. Windows Build Support module и license не подтверждены.
+3. Нет запущенного Unity Test Runner / Play Mode / screenshot pipeline.
+4. Нет Windows build artifacts.
+5. Референс-скриншоты Play Store не анализировались визуально; procedural art/audio — placeholders.
 
-Русское окно «ЗВУК» доступно с главного экрана, экрана уровней и из паузы. В нём раздельно переключаются «МУЗЫКА» и «ЭФФЕКТЫ», есть «ВСЕ ЗВУКИ» для полного отключения одной кнопкой и три регулятора громкости: общей, музыки и эффектов. Все шесть значений пишутся в `PlayerPrefs` и восстанавливаются при следующем `Init`; офлайн-тест проверяет независимость переключателей и сохранение после повторной инициализации. Уровни шин заданы в коде: музыка `0.30`, мойка `0.75`, UI `0.45`, животные `0.75`, ambient `0.45`, что соответствует запрошенным диапазонам. Если в проекте есть `Resources/Audio/AudioMixer`, источники автоматически назначаются в одноимённые группы; наличие файла не обязательно.
+## 10. Рекомендуемый следующий шаг
 
-Из 12 пунктов проверки звука локально по коду/тесту подтверждены: плавное затихание, приглушение музыки, ограничение громкости, отсутствие наложения циклов, сохранение настроек и независимость двух переключателей. Пункты «музыка во время мойки», «слышна вода/трение/распыление/поток воздуха» требуют реального прослушивания и **не подтверждены на слух**.
+1. **Сейчас (у пользователя, Unity уже запущен):** дождаться реимпорта `Packages/manifest.json`
+   (добавлены `particlesystem`, `physics`, `screencapture`) → перекомпилировать → прислать
+   новый Editor log. Ожидаемо: 13 `CS1069` исчезнут. Если появятся новые ошибки — прислать их.
+2. Затем: подтвердить в `File → Build Settings`, что `Assets/Scenes/Game.unity` одна и включена
+   (мы восстановили запись в `EditorBuildSettings.asset`) → записать Editor log → прогнать
+   Editor tests → пройти Play Mode чеклист и сделать 6 скриншотов → подтвердить модуль
+   Windows Build Support → запустить `build-windows.ps1` → заполнить фактические результаты
+   категорий 3/4 в `README.md` и этом отчёте.
 
----
-
-## 11. Какие тесты проведены
-
-**ПРОВЕРЕНО ЛОКАЛЬНО. НЕ ПРОВЕРЕНО В UNITY/CI.**
-
-Выполнено:
-
-- офлайн-компиляция всех скриптов и `VisualVerification.cs` через .NET 8 с Unity-stubs для четырёх конфигураций: без define, `UNITY_EDITOR`, `UNITY_STANDALONE_WIN`, `UNITY_ANDROID` — **0 ошибок, 0 предупреждений**;
-- smoke-тест: все пять этапов `1.000`, слабая зона `0.999`, плавное завершение `start=0.912 → half=0.963 → done=1.000`, `SMOKE TEST OK`;
-- по полученному реальному логу Unity исправлены ошибки компиляции: `Application.openURL` → `Application.OpenURL` и добавлен модуль `com.unity.modules.unitywebrequest` в `Packages/manifest.json` (без него `UnityWebRequest` не был доступен в `UpdateService.cs`);
-- по второму логу Unity (`Build failed, with exit code 1`) найдена причина падения верификации до Play Mode: проверка плавного завершения этапа вызывала `BeginCompletion()` на нетронутой поверхности, а он подготавливает только зоны, уже достигшие порога 0.82. Проверка теперь сначала доводит все зоны до ~0.91, оставляя остаток для анимации; офлайн-замер: `start=0.912 → half=0.963 → done=1.000`. Все `FAIL`-строки дополнительно выводятся в лог Unity через `Debug.LogError`, чтобы причина следующего падения была видна без артефактов CI;
-- проверки A–G: границы, радиус, намокание, пена, очистка/смывание, сушка, три типа машин;
-- девять визуальных состояний с численным сравнением соседних кадров;
-- проверка независимости аудионастроек, пяти источников, затухания и приглушения музыки;
-- геометрия UI, русская локализация, прогресс/PlayerPrefs и автообновление (сравнение версий и HTTPS-манифест) без изменений от предыдущих задач.
-
-Не выполнено: запуск Play Mode, реальные скриншоты, прослушивание, замер FPS, тестирование тача, сборки Windows/Android и запуск GitHub Actions.
-
----
-
-## 12. Какие проблемы остались
-
-**ЧАСТИЧНО / ТРЕБУЕТ ВНЕШНИХ УСЛОВИЙ.**
-
-- Исправленные ошибки компиляции ещё не перепроверены реальным Unity-сборщиком: в этой среде нет Unity Editor. Следующий запуск CI подтвердит их устранение.
-- Визуальная оценка девяти состояний, одиннадцати моментов и звука на слух не выполнялась; подготовленный CI-скрипт должен сделать это при первом запуске workflow.
-- В репозитории нет файла `.mixer`: поддержка `AudioMixer` есть в коде, но реальные шины создаются программно. При желании можно добавить ассет с группами Music / Washing / UI / Characters / Ambient — сборка от этого не зависит.
-- Нет 3D-моделей, PBR-материалов и настоящей физики жидкости: графика остаётся процедурной псевдо-3D-2D.
-- Сборки и релиз с `update.json` ещё не публиковались; автообновление проверено только на уровне сравнения версий и разбора манифеста.
-- Push в GitHub заблокирован отсутствием токена в sandbox; на хосте нужно выполнить `sbx secret set github --sandbox opencode-wash-cars -t "$(gh auth token)"`.
-- Фактическое время мойки 4–6 минут и субъективная сложность после увеличения радиуса не замерены на планшете.
+Шаг 2 не может быть честно выполнен в текущем sandbox.

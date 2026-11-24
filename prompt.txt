@@ -1,0 +1,26 @@
+Assets\LittleGarage\Effects\EffectFx.cs(8,23): error CS1069: The type name 'ParticleSystem' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.ParticleSystemModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Particle System' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\Effects\EffectFx.cs(20,23): error CS1069: The type name 'ParticleSystem' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.ParticleSystemModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Particle System' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\Effects\EffectFx.cs(32,23): error CS1069: The type name 'ParticleSystem' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.ParticleSystemModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Particle System' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\Effects\EffectFx.cs(44,34): error CS1069: The type name 'ParticleSystem' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.ParticleSystemModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Particle System' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\Effects\EffectFx.cs(51,24): error CS1069: The type name 'ParticleSystem' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.ParticleSystemModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Particle System' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\GameManager.cs(686,49): error CS1069: The type name 'RaycastHit' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.PhysicsModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Physics' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\GameManager.cs(703,46): error CS1069: The type name 'RaycastHit' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.PhysicsModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Physics' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\GameManager.cs(27,17): error CS1069: The type name 'ParticleSystem' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.ParticleSystemModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Particle System' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\GameManager.cs(28,17): error CS1069: The type name 'ParticleSystem' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.ParticleSystemModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Particle System' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\GameManager.cs(43,26): error CS1069: The type name 'RaycastHit' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.PhysicsModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Physics' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\Vehicles\VehicleInstance.cs(28,16): error CS1069: The type name 'MeshCollider' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.PhysicsModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Physics' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\Vehicles\VehicleInstance.cs(46,41): error CS1069: The type name 'MeshCollider' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.PhysicsModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Physics' in the Package Manager window to fix this error.
+
+Assets\LittleGarage\Vehicles\VehicleInstance.cs(14,31): error CS1069: The type name 'MeshCollider' could not be found in the namespace 'UnityEngine'. This type has been forwarded to assembly 'UnityEngine.PhysicsModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null' Enable the built in package 'Physics' in the Package Manager window to fix this error.
+
