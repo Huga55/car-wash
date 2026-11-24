@@ -10,8 +10,10 @@ not be referenced or started by new systems; `Assets/Scenes/Game.unity` boots on
 > **UNITY** = verified in Unity Editor (import/compile/tests/PlayMode);
 > **BUILD** = verified in a Windows build; **NOT** = still unverified / blocked.
 > Current slice: runtime + tests + build scripts CODE + OFFLINE; BUILD = NOT.
-> STEP 4 UI repair: CODE + OFFLINE (stubbed compile only). Unity Editor tests, Game View
-> captures, device checks and a build of this new UI commit are NOT verified here.
+> STEP 4 UI repair: CODE + OFFLINE + UNITY + BUILD verified in CI on commit `85282fb`:
+> real Unity 2022.3.61f1 tests 25/25 passed (17 EditMode, 8 PlayMode), Windows/Android
+> builds and release publish succeeded. Game View captures and physical-device checks
+> remain NOT verified here.
 > UNITY = partial: the user ran Unity 2022.3.61f1, which generated `ProjectSettings/*.asset`
 > and reported two rounds of diagnostics: 13 `CS1069` (missing `particlesystem`/`physics`
 > modules, fixed in `Packages/manifest.json`) and 2 `CS0117` plus 3 warnings
@@ -285,29 +287,33 @@ Editor or visual verification of these changes. See `REPORT.md` §11.
 
 * `Assets/Editor/BuildScript.cs` — CODE: `BuildWindows()`/`BuildWindowsCI()`, strict
   `Application.unityVersion` check, scene-0 GUID validation, timestamped logs, file-only
-  `.exe` verification. OFFLINE: path/version/grep + stubs compile. UNITY/BUILD: NOT.
+  `.exe` verification. OFFLINE: path/version/grep + stubs compile. UNITY/BUILD: CI PASS —
+  StandaloneWindows64 build succeeded and produced the full player directory in run 45432416224.
 * `build-windows.ps1` + `BUILD_WINDOWS.md` — CODE: direct `Unity.exe`, exact-version
   enforcement, no silent fallback. OFFLINE: structural checks. UNITY/BUILD: NOT.
 * `.github/workflows/build.yml` — CODE: `game-ci/unity-test-runner@v4` (EditMode+PlayMode)
   gate, no legacy `VisualVerification.Run`, exact `Builds/Windows/LittleCarWorkshop.exe`
-  artifact paths. Executed in GH Actions: NOT (no license/secrets here).
-* `Assets/LittleGarage/Tests/Editor` and `Tests/PlayMode` — CODE + OFFLINE compile:
-  catalog, vehicle/UV coverage, six-stage wash cycle, tool lock, auto-finish,
-  save/load, corrupt-save fallback, part state, scene boot smoke. Unity Editor tests: NOT.
-* STEP 4 tests (CODE + OFFLINE compile only, NOT executed in Unity): 7 PlayMode
-  `UiFlowTests` (screen exclusivity, pause/resume, restart duplication, home cleanup,
-  finale/result timing) and 5 EditMode `UiLayoutTests` (shared layout contract). The
-  pre-existing 13 tests were not modified.
+  artifact paths. Executed in GH Actions: YES — run 45432416224 succeeded on master commit
+  `85282fb`; verify, Android, Windows and release jobs all green.
+* `Assets/LittleGarage/Tests/Editor` and `Tests/PlayMode` — CODE + OFFLINE compile + Unity CI
+  PASS: catalog, vehicle/UV coverage, six-stage wash cycle, tool lock, auto-finish,
+  save/load, corrupt-save fallback, part state, scene boot smoke. Real Unity Editor result:
+  17 EditMode + 8 PlayMode = 25/25 passed in run 45432416224.
+* STEP 4 tests (CODE + OFFLINE compile + Unity CI PASS): 7 PlayMode `UiFlowTests`
+  (screen exclusivity, pause/resume, restart duplication, home cleanup, finale/result timing)
+  and 5 EditMode `UiLayoutTests` (shared layout contract). The pre-existing 13 tests were
+  not modified.
 * `Packages/manifest.json` (CODE): `com.unity.test-framework 1.1.33`, `com.unity.ugui`,
   plus built-in modules — `ui`, `imgui`, `imageconversion`, `audio`, `unitywebrequest`,
   `jsonserialize`, `androidjni`, `uielements`, and (added after real Unity CS1069 errors)
   `particlesystem`, `physics`, `screencapture`. The last three fix forwarded-type compile
   errors for `ParticleSystem`, `RaycastHit`, `MeshCollider`, `ScreenCapture`.
-  Fix applied and manifest JSON validated; Unity recompile not yet confirmed (NOT).
+  Fix applied and manifest JSON validated; clean Unity 2022.3.61f1 import/compile confirmed
+  by the successful CI test/build run on commit `85282fb` (YES in CI).
 * `Documentation/Rebuild/PLAYMODE_VERIFICATION_CHECKLIST.md` — CODE (manual checklist
   with 6 screenshots); Play Mode execution/screenshots: NOT.
-* Blockers: missing `ProjectSettings/*.asset` (recovery via Editor §5.1, in person);
-  Unity 2022.3.61f1 + Windows Build Support + license absent → no import/compile/
-  Editor tests/PlayMode/build verification.
+* Sandbox limitations (not CI blockers): no local Unity Editor, Game View or physical
+  devices; CI run 45432416224 supplied real Unity import/compile/tests, Windows + Android
+  builds and a verified full Windows player artifact. Visual and device checks remain open.
 * Legacy `Assets/Editor/VisualVerification.cs` still compiles in Editor scope but is no
   longer invoked by CI; if it fails Unity compile it must be fixed there (NOT verified).

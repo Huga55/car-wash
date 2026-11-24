@@ -164,9 +164,10 @@ ProgressData {
 | Списки/ввод | ScrollRect + RectMask2D + layout groups для home/garage/customization; декоративные панели `raycastTarget = false`; pause/settings/result/customization — modal blockers; `EventSystem.current` + один input module |
 | Тесты | 7 PlayMode `UiFlowTests` + 5 EditMode `UiLayoutTests`; прежние 13 тестов не тронуты |
 
-**Статус проверки:** реализовано в коде, прошло только offline C# compile со stubbed
-Unity/NUnit. Unity Editor, Game View на 16:9/16:10/4:3 и узком landscape, физические
-Android/Windows-устройства и сборка этого коммита **не проверялись**; скриншоты не снимались.
-Подробный final report — `REPORT.md` §11. Windows-артефакт по-прежнему должен быть полным
-каталогом (`LittleCarWorkshop.exe`, `UnityPlayer.dll`, `LittleCarWorkshop_Data/`); v1.1.0
-был проверен ранее, новый коммит ещё не собран и не опубликован.
+**Статус проверки:** реализовано в коде; offline C# compile прошёл, и реальные Unity Editor
+tests прошли в CI: коммит `85282fb`, Unity 2022.3.61f1, run 45432416224 — 17/17 EditMode,
+8/8 PlayMode, итого **25/25 passed**. Windows/Android-сборки и публикация release тоже
+успешны; скачанный Windows-артефакт и опубликованный zip содержат полный каталог
+(`LittleCarWorkshop.exe`, `UnityPlayer.dll`, `LittleCarWorkshop_Data/`). Game View на
+16:9/16:10/4:3 и узком landscape, физические Android/Windows-устройства и скриншоты
+**по-прежнему не проверялись**. Подробный final report — `REPORT.md` §§10–13.

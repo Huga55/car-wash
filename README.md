@@ -14,6 +14,12 @@
 | **4. Проверено в Windows build** | **Нет.** EXE не был собран. |
 | **5. Всё ещё не проверено / блокировано** | Повторный import/compile после fix, shader import, Editor test suite, Play Mode + 6 скриншотов, Windows `.exe`, Android, визуальное качество и перф. |
 
+> **STEP 4 update (2026-11-24):** строки 3–5 выше — исторический статус STEP 3. Финальный
+> UI-коммит `85282fb` прошел CI [run 45432416224](https://github.com/Huga55/car-wash/actions/runs/45432416224):
+> реальные Unity 2022.3.61f1 тесты **25/25 passed** (17 EditMode + 8 PlayMode), Windows и
+> Android build/publish успешны, полный Windows player проверен по скачанному zip. Game View,
+> скриншоты и физические устройства по-прежнему не проверялись. Детали — `REPORT.md` §§10–13.
+
 ### Ключевые блокеры STEP 3 (не придумываются workaround-ы)
 
 - `ProjectSettings/ProjectSettings.asset` **был восстановлен пользователем через Unity** (реальный Editor output, не ручная фабрикация). Проверено: версия `2022.3.61f1 (6c53ebaf375d)`, `activeInputHandler: 0` (legacy Input), Built-in RP, ось `Mouse ScrollWheel` есть. Unity перезаписал `EditorBuildSettings.asset` в `m_Scenes: []` — запись `Game.unity` возвращена вручную. Подробности: [REPORT.md §2](REPORT.md).

@@ -4,6 +4,14 @@
 Unity target: **2022.3.61f1**, Built-in Render Pipeline  
 Рабочая директория: `/e/my/wash-cars`
 
+> **STEP 4 final CI verification (2026-11-24):** commit `85282fb3f028feb69c6e8a40625691b2f139ef95`
+> pushed to `master`, workflow run
+> [45432416224](https://github.com/Huga55/car-wash/actions/runs/45432416224) completed
+> successfully. Real Unity 2022.3.61f1 tests: EditMode **17/17**, PlayMode **8/8**, total
+> **25/25 passed**. Android build, StandaloneWindows64 build and release publish all succeeded;
+> the downloaded Windows CI artifact and published `LittleCarWash-windows.zip` are full player
+> directories. Game View screenshots and physical-device checks were still not performed.
+
 ## 1. Что изменилось в этом шаге
 
 **Никаких новых gameplay-фич не добавлялось** (STEP 3 §7). Что сделано:
@@ -275,6 +283,11 @@ scene/GUID validation, file-only EXE check), но **Unity не производ�
 | 4. Проверено в Windows build | ❌ Нет (EXE не собран) |
 | 5. Всё ещё не проверено | повторный import/compile после fix, Editor tests, Play Mode, 6 скриншотов, Windows EXE, Android, визуал/перф |
 
+> STEP 4 update: the historical STEP 3 rows above predate the final UI commit. For commit
+> `85282fb` the CI run above confirms Unity import/compile and 25/25 Editor/PlayMode tests,
+> plus successful Windows and Android builds and a full Windows release zip. Game View captures,
+> physical devices and visual/performance inspection remain unverified (see §§10–13).
+
 ## 9. Точные оставшиеся блокеры
 
 1. Повторная компиляция в Unity после исправления manifest — не выполнялась (Unity есть только у пользователя, не в sandbox).
@@ -282,6 +295,11 @@ scene/GUID validation, file-only EXE check), но **Unity не производ�
 3. Нет повторного прогона CI после исправления флага coverage (§5, раунд 3); Unity Test Runner / Play Mode / screenshot pipeline не запускались.
 4. Нет Windows build artifacts.
 5. Референс-скриншоты Play Store не анализировались визуально; procedural art/audio — placeholders.
+
+> STEP 4 update: blockers 1–4 were resolved for the final UI commit by CI run 45432416224
+> (Unity 2022.3.61f1 import/compile/tests, Android + Windows builds, release assets). Blocker 5
+> and all Game View/device verification remain open because no Unity Editor, screenshots or
+> physical devices were available in this sandbox.
 
 ## 10. Рекомендуемый следующий шаг
 
@@ -436,7 +454,7 @@ finale HUD/tools скрыты, primary остаётся `Play` для 3D-шоу�
 
 ### 9. Tests added or updated
 
-Добавлено **7 PlayMode `UiFlowTests`** (Unity-тесты ещё не запускались):
+Добавлено **7 PlayMode `UiFlowTests`** (все прошли в финальном CI-прогоне):
 
 | Тест | Что утверждает |
 |---|---|
@@ -464,38 +482,49 @@ finale HUD/tools скрыты, primary остаётся `Play` для 3D-шоу�
 ### 10. Actual test results
 
 * **Offline:** C# compile checks с stubbed Unity/NUnit прошли (`0 errors`); это только
-  компиляция, **не выполнение тестов в Unity**.
-* **Unity Editor:** EditMode/PlayMode не запускались; Unity в sandbox недоступен.
-* **CI:** новый UI-коммит ещё не запускался; зелёный результат workflow не заявляется.
+  компиляция, **не замена Unity Editor tests**.
+* **Unity Editor (real, in CI):** `game-ci/unity-test-runner@v4` запустил настоящие EditMode-
+  и PlayMode-наборы на коммите `85282fb` в Unity **2022.3.61f1** (run 45432416224):
+  `editmode-results.xml — 17/17 — Passed in 3.243s`,
+  `playmode-results.xml — 8/8 — Passed in 13.225s`,
+  `Test Results — 25/25 — Passed in 16.467s`. Сюда входят все 12 новых UI-тестов.
+  Локально Unity в sandbox недоступен; запуск выполнялся именно в GitHub Actions.
+* **CI:** workflow `Build Little Car Workshop (Android + Windows)` завершился `success`
+  для точного SHA `85282fb`; job'ы verify, Build Android, Build StandaloneWindows64 и
+  Publish in-app update manifest — `success`.
+* **Build / published artifact (CI):** скачанный CI-артефакт
+  `LittleCarWash-StandaloneWindows64` и опубликованный `LittleCarWash-windows.zip` содержат
+  `LittleCarWorkshop.exe`, `UnityPlayer.dll` и `LittleCarWorkshop_Data/` (107 записей).
+  `update.json` release v1.1.0 содержит `notes: "fix: address CI failures (iteration 1)"`,
+  то есть ассеты пересобраны из этого коммита.
 * **Game View / aspect ratios / screenshots:** не выполнялись.
-* **Android/Windows physical devices, Unity build:** не выполнялись.
+* **Android/Windows physical devices:** не выполнялись.
 
 ### 11. Screenshots captured
 
 Ноль. Ни один из 8 требуемых §12 скриншотов (главное меню, выбор задания, старт задания,
 этап мойки, другой инструмент, пауза, результат, другой aspect ratio) в этом sandbox не
-сделан. Визуальные
-улучшения **не подтверждены**.
+сделан; CI тоже не снимает Game View. Прохождение тестов и сборка **не являются** визуальным
+подтверждением: clipping, overlap, layering и удобство тач-целей остаются **не проверенными**.
 
 ### 12. Remaining issues
 
-1. Запустить Unity Editor tests (7 новых PlayMode + 5 EditMode + прежние 13) и получить
-   чистый прогон CI на новом коммите.
-2. Пройти Play Mode вручную и снять 8 скриншотов минимум при 16:9, 16:10, 4:3 и узком
-   landscape; проверить clipping/overlap/layering и тач-цели.
-3. Проверить safe area и ввод на физическом Android-планшете и Windows.
-4. Собрать и проверить **полный** Windows player; требование артефакта сохраняется:
-   каталог с `LittleCarWorkshop.exe`, `UnityPlayer.dll` и `LittleCarWorkshop_Data/`, а не
-   только `.exe`. Ранее выпущенный **v1.1.0** имел проверенный полный артефакт, но этот
-   новый коммит ещё не собран и не опубликован.
+1. Пройти Play Mode вручную и снять 8 скриншотов минимум при 16:9, 16:10, 4:3 и узком
+   landscape; проверить clipping/overlap/layering и тач-цели. Это единственный способ
+   подтвердить визуальные улучшения.
+2. Проверить safe area и ввод на физическом Android-планшете и Windows.
+3. Сохранённое требование к будущим релизам: публиковать **полный** Windows player
+   (`LittleCarWorkshop.exe`, `UnityPlayer.dll`, `LittleCarWorkshop_Data/`), а не только `.exe`.
+   Для этого коммита требование выполнено и проверено по скачанному CI-артефакту и
+   опубликованному zip; известных блокирующих CI-проблем нет.
 
 ### 13. Implemented vs verified (5 категорий)
 
 | Категория | Статус STEP 4 |
 |---|---|
 | Implemented in code | ✅ Экраны, `ApplyVisibility`, `UiOverlay`, `UiLayoutMetrics`, layout, finale guards, 12 новых тестов |
-| Verified offline | ✅ Только stubbed C# compile; статические проверки исходников не заменяют Unity |
-| Verified in Unity Editor | ❌ Нет (import/compile/tests/PlayMode нового коммита не запускались) |
+| Verified offline | ✅ Stubbed C# compile; статические проверки исходников не заменяют Unity |
+| Verified in Unity Editor | ✅ GitHub Actions, Unity 2022.3.61f1, commit `85282fb`: 25/25 реальных EditMode+PlayMode тестов passed (17 + 8); локально Unity недоступен |
 | Verified in Game View at multiple aspect ratios | ❌ Нет (скриншоты/замеры не делались) |
 | Verified on physical Android/Windows devices | ❌ Нет |
-| Windows build / published artifact | ❌ Для нового коммита нет; v1.1.0 — предыдущий проверенный полный player |
+| Windows build / published artifact | ✅ CI build + publish succeeded; скачаны полный CI-артефакт и release zip с `.exe`, `UnityPlayer.dll`, `LittleCarWorkshop_Data/` |
