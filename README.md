@@ -10,14 +10,14 @@
 |---|---|
 | **1. Реализовано в коде** | Все модули `Assets/LittleGarage/*`, сцена Bootstrap, data-driven каталог, шестиэтапный цикл мойки, финал 7+ секунд, save/load, процедурные гараж/машина/аудио, русский UI, build/CI scaffolding, EditMode/PlayMode тесты. |
 | **2. Проверено offline (без Unity)** | C# compile-check runtime + тестов против Unity-stubs; поведение цикла мойки, save/load, UV-покрытия, tool lock, auto-finish; статическая проверка GUID сцены, EditorBuildSettings, meta/GUID, PowerShell/YAML. |
-| **3. Проверено в Unity Editor** | **Частично.** Пользователь запустил Unity 2022.3.61f1: сгенерированы `ProjectSettings/*.asset`, получено 13 `CS1069` (не хватало built-in модулей `ParticleSystem`/`Physics`); исправлено в `Packages/manifest.json`, восстановлен scene list. Повторной компиляции не было — успех **не подтверждён**. Editor tests, Play Mode и скриншоты не выполнялись. |
+| **3. Проверено в Unity Editor** | **Частично.** Пользователь запустил Unity 2022.3.61f1: сгенерированы `ProjectSettings/*.asset`; два лога дали 13 `CS1069` (не хватало built-in модулей) + 2 `CS0117` (`ParticleSystemStopBehavior`) и 3 warning — всё исправлено; scene list восстановлен. Чистая компиляция **не подтверждена**. Editor tests, Play Mode и скриншоты не выполнялись. |
 | **4. Проверено в Windows build** | **Нет.** EXE не был собран. |
 | **5. Всё ещё не проверено / блокировано** | Повторный import/compile после fix, shader import, Editor test suite, Play Mode + 6 скриншотов, Windows `.exe`, Android, визуальное качество и перф. |
 
 ### Ключевые блокеры STEP 3 (не придумываются workaround-ы)
 
 - `ProjectSettings/ProjectSettings.asset` **был восстановлен пользователем через Unity** (реальный Editor output, не ручная фабрикация). Проверено: версия `2022.3.61f1 (6c53ebaf375d)`, `activeInputHandler: 0` (legacy Input), Built-in RP, ось `Mouse ScrollWheel` есть. Unity перезаписал `EditorBuildSettings.asset` в `m_Scenes: []` — запись `Game.unity` возвращена вручную. Подробности: [REPORT.md §2](REPORT.md).
-- **Unity 2022.3.61f1 недоступен в sandbox** (нет бинарника/пакетов/env/образа, нет license secrets), поэтому повторный import/compile/tests/Play Mode/build здесь невозможны. Первый compile пользователя выявил 13 `CS1069` (см. [REPORT.md §4](REPORT.md)); в `Packages/manifest.json` добавлены `particlesystem`, `physics`, `screencapture` — исправление проверено только статически (JSON + offline stubs).
+- **Unity 2022.3.61f1 недоступен в sandbox** (нет бинарника/пакетов/env/образа, нет license secrets), поэтому повторный import/compile/tests/Play Mode/build здесь невозможны. Два лога пользователя выявили 13 `CS1069` и 2 `CS0117` + 3 warning; все исправлены (см. [REPORT.md §4](REPORT.md)), проверка — только статическая/ offline (stubs исправлены под реальный Unity API).
 - Краткая процедура установки и точный ручной чеклист: [REPORT.md](REPORT.md) и [PLAYMODE_VERIFICATION_CHECKLIST.md](Documentation/Rebuild/PLAYMODE_VERIFICATION_CHECKLIST.md).
 - 8 референс-скриншотов Google Play (`/tmp/opencode/ref/shot1.png`…`shot8.png`) не были визуально проанализированы; используются только текстовые факты.
 - Процедурные 3D-модель машины, гараж, персонажи финала и звук — **functional placeholders**, не финальный art/audio.
@@ -76,7 +76,7 @@ powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 
 ## Что осталось вне этой среды
 
-1. **Сейчас у пользователя:** перекомпилировать после исправления `Packages/manifest.json` и прислать новый Editor log (13 `CS1069` должны исчезнуть).
+1. **Сейчас у пользователя:** перекомпилировать после исправлений `Packages/manifest.json` и `ParticleSystemStopBehavior` и прислать новый Editor log (ошибок/warning из `prompt.txt` не должно быть).
 2. Подтвердить в `File → Build Settings`, что `Assets/Scenes/Game.unity` одна и включена (запись восстановлена в `EditorBuildSettings.asset`).
 3. Проверить импорт/компиляцию, убедиться, что Console без ошибок.
 4. Запустить Unity Test Runner (EditMode+PlayMode) и сохранить результаты.

@@ -11,9 +11,11 @@ not be referenced or started by new systems; `Assets/Scenes/Game.unity` boots on
 > **BUILD** = verified in a Windows build; **NOT** = still unverified / blocked.
 > Current slice: runtime + tests + build scripts CODE + OFFLINE; BUILD = NOT.
 > UNITY = partial: the user ran Unity 2022.3.61f1, which generated `ProjectSettings/*.asset`
-> and reported 13 `CS1069` errors (missing `particlesystem`/`physics` modules); fixed in
-> `Packages/manifest.json`, recompile not yet confirmed. Unity is not installed in this
-> sandbox, so no further Editor/Build verification is possible here.
+> and reported two rounds of diagnostics: 13 `CS1069` (missing `particlesystem`/`physics`
+> modules, fixed in `Packages/manifest.json`) and 2 `CS0117` plus 3 warnings
+> (`ParticleSystemStopBehavior`, unused fields — fixed in code). Clean recompile not yet
+> confirmed. Unity is not installed in this sandbox, so no further Editor/Build
+> verification is possible here.
 > `ProjectSettings/ProjectSettings.asset` was recovered by Unity Editor (not fabricated);
 > it is untracked. Unity cleared `EditorBuildSettings.asset`, so `Game.unity` was restored
 > as the single enabled build scene. See `REPORT.md` §§2–4 and roadmap §5.1.

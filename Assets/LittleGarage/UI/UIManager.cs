@@ -103,6 +103,10 @@ namespace LittleGarage
         private Button _settingsCloseButton;
 
         private ScreenId _currentScreen = ScreenId.Home;
+
+        /// <summary>Read-only view of the screen last shown; useful for QA and tests.</summary>
+        public ScreenId CurrentScreen => _currentScreen;
+
         private string _currentJobId;
         private ProgressManager _progress;
         private Vector2 _lastSafeMin;

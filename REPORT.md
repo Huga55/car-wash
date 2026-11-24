@@ -54,9 +54,9 @@ Unity target: **2022.3.61f1**, Built-in Render Pipeline
 и старт билда. Запись восстановлена вручную в формате Unity 2022 (`!u!1045`, `serializedVersion: 2`).
 Файлы остаются **untracked** — коммит не выполнялся (STEP 3 §1 запрещает commit/push).
 
-`Packages/packages-lock.json` сгенерирован **до** добавления трёх модулей в `manifest.json`,
-поэтому в нём ещё нет `particlesystem`/`physics`/`screencapture`. Unity обновит lock при
-следующем открытии; вручную lock не редактировался.
+`Packages/packages-lock.json` сначала был сгенерирован до module fix, но к моменту второго
+лога Unity обновил его: записи `com.unity.modules.particlesystem`, `com.unity.modules.physics`
+и `com.unity.modules.screencapture` присутствуют. Вручную lock не редактировался.
 
 ## 3. Проверка Unity installation (§3)
 
@@ -123,10 +123,27 @@ asmdef `LittleGarage.Runtime` не использует `overrideReferences`, п
 пакетами (`com.unity.ugui`, `com.unity.modules.ui`, `audio`, `jsonserialize`) или core module:
 полный scan типов в `Assets/LittleGarage/**/*.cs` выполнен, дополнительных пропусков нет.
 
-**Статус fix:** применён в коде, JSON проверен как валидный. **Повторной компиляции в Unity не было** —
-пользователь должен переоткрыть/перекомпилировать проект и прислать новый лог. До этого
-модуль «Unity Editor compile» остаётся **частично проверенным** (ошибки найдены и устранены,
-успех не подтверждён).
+**Статус fix раунда 1:** применён в коде, JSON проверен как валидный. Повторная компиляция
+пользователем дала новый лог (раунд 2 ниже).
+
+### Раунд 2 — второй лог пользователя (после module fix)
+
+В обновлённом `prompt.txt` — 2 ошибки `CS0117` и 3 warning:
+
+| Уровень | Место | Причина | Исправление |
+|---|---|---|---|
+| error `CS0117` | `GameManager.cs:747`, `748` | код писал `ParticleSystem.ParticleSystemStopBehavior.StopEmitting`, но в UnityEngine перечисление **`UnityEngine.ParticleSystemStopBehavior`**, а не вложенный тип `ParticleSystem` | заменено на `ParticleSystemStopBehavior.StopEmitting` |
+| warning `CS0219` | `GameManager.cs:348` | `ToolDef unused = null;` — локальная переменная не читалась | удалена, оставлен комментарий о будущем расширении |
+| warning `CS0414` | `UIManager.cs:105` | поле `_currentScreen` только присваивалось | добавлен `public ScreenId CurrentScreen => _currentScreen;` (полезно для QA/тестов) |
+| warning `CS0414` | `RepairSystem.cs:90` | поле `_stageT` только обнулялось | поле и присваивание удалены |
+
+**Почему offline-проверка раньше не поймала CS0117:** в `/tmp/opencode/compilecheck/ExtraStubs.cs`
+перечисление было ошибочно объявлено **внутри** `ParticleSystem`. Stub приведён к реальному
+Unity API (namespace-level enum); после этого offline runtime build и tests build снова
+дают `0 Warning(s), 0 Error(s)`, behavior harness — `ALL OFFLINE CHECKS PASSED`.
+
+**Статус:** оба раунда ошибок исправлены в коде. **Успешная компиляция в Unity всё ещё не
+подтверждена** — нужен третий лог/Console без ошибок.
 
 ### Статические предпроверки (не заменяют Unity)
 
@@ -182,7 +199,7 @@ scene/GUID validation, file-only EXE check), но **Unity не производ�
 |---|---|
 | 1. Реализовано в коде | ✅ STEP 2 slice + build/CI + тесты + чеклист |
 | 2. Проверено offline | ✅ STEP 2 compile/behavior/tests compile; STEP 3 static GUID/meta/version/path checks |
-| 3. Проверено в Unity Editor | ⚠️ Частично: Unity пользователем создал ProjectSettings и дал 13 `CS1069`; исправлено (§2, §4); повторная компиляция/tests/PlayMode — ❌ не подтверждены |
+| 3. Проверено в Unity Editor | ⚠️ Частично: Unity пользователем создал ProjectSettings; 2 раунда ошибок (13 `CS1069` + 2 `CS0117`) и 3 warning исправлены (§2, §4); чистая компиляция/tests/PlayMode — ❌ не подтверждены |
 | 4. Проверено в Windows build | ❌ Нет (EXE не собран) |
 | 5. Всё ещё не проверено | повторный import/compile после fix, Editor tests, Play Mode, 6 скриншотов, Windows EXE, Android, визуал/перф |
 
@@ -196,9 +213,9 @@ scene/GUID validation, file-only EXE check), но **Unity не производ�
 
 ## 10. Рекомендуемый следующий шаг
 
-1. **Сейчас (у пользователя, Unity уже запущен):** дождаться реимпорта `Packages/manifest.json`
-   (добавлены `particlesystem`, `physics`, `screencapture`) → перекомпилировать → прислать
-   новый Editor log. Ожидаемо: 13 `CS1069` исчезнут. Если появятся новые ошибки — прислать их.
+1. **Сейчас (у пользователя, Unity уже запущен):** перекомпилировать после правок раунда 2
+   (`ParticleSystemStopBehavior` и warnings) → прислать новый Editor log. Ожидаемо: ошибок и
+   warning из `prompt.txt` больше нет. Если появятся новые — прислать их.
 2. Затем: подтвердить в `File → Build Settings`, что `Assets/Scenes/Game.unity` одна и включена
    (мы восстановили запись в `EditorBuildSettings.asset`) → записать Editor log → прогнать
    Editor tests → пройти Play Mode чеклист и сделать 6 скриншотов → подтвердить модуль

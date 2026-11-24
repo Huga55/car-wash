@@ -87,7 +87,6 @@ namespace LittleGarage
         private bool _draggingNewPart;
         private bool _draggingTarget;
         private Vector3 _dragOffsetWorld;
-        private float _stageT;
         private float _wipeAmount;
         private float _hoodT;
         private bool _hoodOpen;
@@ -114,7 +113,6 @@ namespace LittleGarage
             _fastenerIndex = 0;
             _draggingNewPart = false;
             _draggingTarget = false;
-            _stageT = 0f;
             _wipeAmount = 0f;
             _hoodT = 0f;
             _hoodOpen = false;

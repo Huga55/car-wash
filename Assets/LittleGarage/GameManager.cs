@@ -345,7 +345,7 @@ namespace LittleGarage
         {
             if (CurrentTaskKind() == TaskKind.Paint || CurrentTaskKind() == TaskKind.Customize)
             {
-                ToolDef unused = null; // keep tool catalog referenced for future tool-driven paint
+                // Tool-driven paint is a future extension; no tool state is needed here.
                 OnTaskCompleted();
             }
         }
@@ -744,8 +744,8 @@ namespace LittleGarage
         private void StopEffects()
         {
             StopLoop();
-            if (_waterFx != null) _waterFx.Stop(false, ParticleSystem.ParticleSystemStopBehavior.StopEmitting);
-            if (_foamFx != null) _foamFx.Stop(false, ParticleSystem.ParticleSystemStopBehavior.StopEmitting);
+            if (_waterFx != null) _waterFx.Stop(false, ParticleSystemStopBehavior.StopEmitting);
+            if (_foamFx != null) _foamFx.Stop(false, ParticleSystemStopBehavior.StopEmitting);
         }
 
         private void ApplySurfaceMaterial(VehicleInstance car, SurfaceStateSystem surface, Color color)

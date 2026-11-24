@@ -13,8 +13,9 @@
 
 Текущий срез STEP 3: Stage 0–6, 8 (code/build parts) — **[CODE] + [OFFLINE]**;
 **[UNITY]** — **частично**: пользовательский compile выявил 13 `CS1069` (не хватало
-built-in модулей `particlesystem`/`physics`); исправлено в `Packages/manifest.json`,
-но повторная компиляция не подтверждена. **[BUILD]** — **[NOT]**
+built-in модулей `particlesystem`/`physics`) и затем 2 `CS0117` + 3 warning
+(`ParticleSystemStopBehavior`, неиспользуемые члены); всё исправлено, но чистая
+компиляция не подтверждена. **[BUILD]** — **[NOT]**
 (Unity 2022.3.61f1 недоступен в sandbox, license не подтверждена).
 Stage 7 (визуальная полировка/перф) — **[NOT]**.
 `ProjectSettings/*.asset` восстановлены **самим Unity** у пользователя (не вручную);
@@ -184,8 +185,8 @@ Stage 7 (визуальная полировка/перф) — **[NOT]**.
 и `Packages/packages-lock.json`. Проверено: `activeInputHandler: 0` (Input Manager Old),
 Built-in RP (`m_CustomRenderPipeline: {fileID: 0}`), ось `Mouse ScrollWheel` присутствует.
 Шаг 3–4 частично подтверждены косвенно; шаг 5 **потребовал ручной правки**: Unity выписал
-`m_Scenes: []`, запись `Game.unity` (guid `bbbb…`) возвращена. Шаг 6 выявил 13 `CS1069` →
-исправлено в `manifest.json` → **повторная компиляция ожидается от пользователя**.
+`m_Scenes: []`, запись `Game.unity` (guid `bbbb…`) возвращена. Шаг 6 выявил 13 `CS1069` → исправлено в `manifest.json` → пользователь прислал второй лог
+(2 `CS0117` + 3 warning), исправлено в коде → **третий лог/чистая компиляция ожидается**.
 Шаг 7 (коммит) **не выполнялся** по запрету STEP 3; файлы untracked.
 
 Поддельные `.asset`-файлы не создавались: настройки сгенерированы самим Unity. После успешной
