@@ -131,7 +131,9 @@ namespace LittleGarage
                 return;
             }
 
-            for (int i = 0; i < _tools.Length; i++)
+            // Only reveal progress for tools already reached. Evaluating future tools
+            // made the HUD show sponge/rinse completion before those stages began.
+            for (int i = 0; i <= _toolIndex && i < _tools.Length; i++)
             {
                 float p = EvaluateToolProgress(_tools[i]);
                 if (p > _toolProgress[i]) _toolProgress[i] = p;

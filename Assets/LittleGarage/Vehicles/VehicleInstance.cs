@@ -26,6 +26,7 @@ namespace LittleGarage
         private MaterialPropertyBlock _mpb;
 
         public MeshCollider[] PaintColliders { get { return _paintColliders.ToArray(); } }
+        public Renderer[] PaintRenderers { get { return _paintRenderers.ToArray(); } }
         public IReadOnlyDictionary<PartKind, VehiclePart> PartsMap { get { return Parts; } }
 
         public void Initialize(VehicleDef def, Transform root, Transform hoodPivot)

@@ -114,6 +114,7 @@ namespace LittleGarage
         private bool _settingsVisible;
         private bool _hudVisible;
         private bool _toolsVisible;
+        private bool _instructionHidden;
         private UiOverlay _settingsReturnOverlay = UiOverlay.None;
 
         /// <summary>Read-only view of the primary screen; useful for QA and tests.</summary>
@@ -181,6 +182,16 @@ namespace LittleGarage
                 for (int i = 0; i < _jobCards.Count; i++)
                     if (IsActive(_jobCards[i] != null ? _jobCards[i].Root : null)) count++;
                 return count;
+            }
+        }
+
+        /// <summary>QA view of the instruction band after the first successful interaction.</summary>
+        public bool InstructionVisible
+        {
+            get
+            {
+                EnsureBuilt();
+                return IsActive(_instructionPanel);
             }
         }
 
@@ -268,6 +279,7 @@ namespace LittleGarage
         {
             EnsureBuilt();
             _currentJobId = job != null ? job.id : _currentJobId;
+            _instructionHidden = false;
             ApplyVisibility(ScreenId.Play, false, false, false, true, true);
 
             _playTitleText.text = job != null ? job.titleRu : "Задание";
@@ -311,6 +323,15 @@ namespace LittleGarage
         {
             EnsureBuilt();
             if (_playHintText != null) _playHintText.text = text ?? string.Empty;
+        }
+
+        /// <summary>The instruction is a teaching aid: hide it after the first real wash stroke.</summary>
+        public void MarkFirstInteraction()
+        {
+            EnsureBuilt();
+            if (_instructionHidden) return;
+            _instructionHidden = true;
+            if (_instructionPanel != null) _instructionPanel.SetActive(false);
         }
 
         public void ShowComplete(string title, string body, int reward)
@@ -526,7 +547,7 @@ namespace LittleGarage
             if (_completeScreen != null) _completeScreen.SetActive(screen == ScreenId.Complete);
 
             if (_topBar != null) _topBar.SetActive(_hudVisible);
-            if (_instructionPanel != null) _instructionPanel.SetActive(_hudVisible);
+            if (_instructionPanel != null) _instructionPanel.SetActive(_hudVisible && !_instructionHidden);
             if (_hintPanel != null) _hintPanel.SetActive(screen == ScreenId.Play);
             if (_toolBar != null) _toolBar.gameObject.SetActive(_toolsVisible);
             if (_pausePanel != null) _pausePanel.SetActive(_pauseVisible);

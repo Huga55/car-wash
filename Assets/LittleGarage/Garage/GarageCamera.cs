@@ -80,6 +80,10 @@ namespace LittleGarage
             }
             _camera.clearFlags = CameraClearFlags.SolidColor;
             _camera.backgroundColor = new Color(0.62f, 0.72f, 0.82f, 1f);
+            // Game.unity ships an orthographic camera, but this rig's focus/zoom and
+            // FOV are authored for perspective. Without this the car framing never
+            // changes with cameraDistance and raycast targets are misframed.
+            _camera.orthographic = false;
             _camera.nearClipPlane = 0.05f;
             _camera.farClipPlane = 80f;
             _camera.fieldOfView = 38f;

@@ -270,7 +270,7 @@ namespace LittleGarage
             for (int side = 0; side < 2; side++)
             {
                 float z = side == 0 ? sideZ + 0.006f : -sideZ - 0.006f;
-                Vector3 normal = side == 0 ? Vector3.forward : Vector3.back;
+                Vector3 normalHint = side == 0 ? Vector3.forward : Vector3.back;
                 MeshData data = MeshData.Create();
                 for (int wheel = 0; wheel < 2; wheel++)
                 {
@@ -283,7 +283,10 @@ namespace LittleGarage
                         Vector3 inner1 = new Vector3(cx + Mathf.Cos(a1) * (radius - thickness), wr + Mathf.Sin(a1) * (radius - thickness), z);
                         Vector3 outer1 = new Vector3(cx + Mathf.Cos(a1) * radius, wr + Mathf.Sin(a1) * radius, z);
                         Vector3 outer0 = new Vector3(cx + Mathf.Cos(a0) * radius, wr + Mathf.Sin(a0) * radius, z);
-                        AddQuadN(data, inner0, inner1, outer1, outer0, normal, AtlasRect(0f, 0f, 0.1f, 0.1f));
+                        if (side == 0)
+                            AddQuadN(data, inner0, inner1, outer1, outer0, normalHint, AtlasRect(0f, 0f, 0.1f, 0.1f));
+                        else
+                            AddQuadN(data, outer0, outer1, inner1, inner0, normalHint, AtlasRect(0f, 0f, 0.1f, 0.1f));
                     }
                 }
                 CreateMeshObject(side == 0 ? "ArchTrimL" : "ArchTrimR", ctx.Root, data, ctx.DarkMat);
@@ -670,7 +673,9 @@ namespace LittleGarage
 
         private static void AddQuad(MeshData m, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Rect uvRect)
         {
-            Vector3 n = Vector3.Cross(b - a, d - a).normalized;
+            // The emitted triangles are (a,c,b) and (a,d,c). Derive the stored normal
+            // from that winding so lighting agrees with the visible front face.
+            Vector3 n = Vector3.Cross(d - a, b - a).normalized;
             int i = m.V.Count;
             AddVert(m, a, n, new Vector2(uvRect.xMin, uvRect.yMin));
             AddVert(m, b, n, new Vector2(uvRect.xMax, uvRect.yMin));
@@ -680,15 +685,11 @@ namespace LittleGarage
             m.T.Add(i); m.T.Add(i + 3); m.T.Add(i + 2);
         }
 
-        private static void AddQuadN(MeshData m, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, Rect uvRect)
+        private static void AddQuadN(MeshData m, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 ignoredNormalHint, Rect uvRect)
         {
-            int i = m.V.Count;
-            AddVert(m, a, n, new Vector2(uvRect.xMin, uvRect.yMin));
-            AddVert(m, b, n, new Vector2(uvRect.xMax, uvRect.yMin));
-            AddVert(m, c, n, new Vector2(uvRect.xMax, uvRect.yMax));
-            AddVert(m, d, n, new Vector2(uvRect.xMin, uvRect.yMax));
-            m.T.Add(i); m.T.Add(i + 2); m.T.Add(i + 1);
-            m.T.Add(i); m.T.Add(i + 3); m.T.Add(i + 2);
+            // Kept for call sites that previously supplied a normal hint. The hint was
+            // wrong on one side of the car, so derive the normal from winding instead.
+            AddQuad(m, a, b, c, d, uvRect);
         }
 
         private static void AddBeveledBox(MeshData m, Vector3 center, Vector3 size, float bevel, Rect uv)
@@ -740,22 +741,30 @@ namespace LittleGarage
             // Back-left
             AddQuad(m, c + new Vector3(-hx, -iy, -iz), c + new Vector3(-ix, -iy, -hz), c + new Vector3(-ix, iy, -hz), c + new Vector3(-hx, iy, -iz), uv);
 
-            // 8 corner triangles
-            AddTri(m, c + new Vector3(ix, hy, iz), c + new Vector3(hx, iy, iz), c + new Vector3(ix, iy, hz), uv);
-            AddTri(m, c + new Vector3(ix, hy, -iz), c + new Vector3(ix, iy, -hz), c + new Vector3(hx, iy, -iz), uv);
-            AddTri(m, c + new Vector3(-ix, hy, iz), c + new Vector3(-ix, iy, hz), c + new Vector3(-hx, iy, iz), uv);
-            AddTri(m, c + new Vector3(-ix, hy, -iz), c + new Vector3(-hx, iy, -iz), c + new Vector3(-ix, iy, -hz), uv);
-            AddTri(m, c + new Vector3(ix, -hy, iz), c + new Vector3(ix, -iy, hz), c + new Vector3(hx, -iy, iz), uv);
-            AddTri(m, c + new Vector3(ix, -hy, -iz), c + new Vector3(hx, -iy, -iz), c + new Vector3(ix, -iy, -hz), uv);
-            AddTri(m, c + new Vector3(-ix, -hy, iz), c + new Vector3(-hx, -iy, iz), c + new Vector3(-ix, -iy, hz), uv);
-            AddTri(m, c + new Vector3(-ix, -hy, -iz), c + new Vector3(-ix, -iy, -hz), c + new Vector3(-hx, -iy, -iz), uv);
+            // 8 corner triangles. Each one is oriented toward its outward octant so
+            // no bevel is back-face-culled when the camera orbits the car.
+            AddTri(m, c + new Vector3(ix, hy, iz), c + new Vector3(hx, iy, iz), c + new Vector3(ix, iy, hz), new Vector3(1f, 1f, 1f), uv);
+            AddTri(m, c + new Vector3(ix, hy, -iz), c + new Vector3(ix, iy, -hz), c + new Vector3(hx, iy, -iz), new Vector3(1f, 1f, -1f), uv);
+            AddTri(m, c + new Vector3(-ix, hy, iz), c + new Vector3(-ix, iy, hz), c + new Vector3(-hx, iy, iz), new Vector3(-1f, 1f, 1f), uv);
+            AddTri(m, c + new Vector3(-ix, hy, -iz), c + new Vector3(-hx, iy, -iz), c + new Vector3(-ix, iy, -hz), new Vector3(-1f, 1f, -1f), uv);
+            AddTri(m, c + new Vector3(ix, -hy, iz), c + new Vector3(ix, -iy, hz), c + new Vector3(hx, -iy, iz), new Vector3(1f, -1f, 1f), uv);
+            AddTri(m, c + new Vector3(ix, -hy, -iz), c + new Vector3(hx, -iy, -iz), c + new Vector3(ix, -iy, -hz), new Vector3(1f, -1f, -1f), uv);
+            AddTri(m, c + new Vector3(-ix, -hy, iz), c + new Vector3(-hx, -iy, iz), c + new Vector3(-ix, -iy, hz), new Vector3(-1f, -1f, 1f), uv);
+            AddTri(m, c + new Vector3(-ix, -hy, -iz), c + new Vector3(-ix, -iy, -hz), c + new Vector3(-hx, -iy, -iz), new Vector3(-1f, -1f, -1f), uv);
         }
 
-        private static void AddTri(MeshData m, Vector3 a, Vector3 b, Vector3 c, Rect uv)
+        private static void AddTri(MeshData m, Vector3 a, Vector3 b, Vector3 c, Vector3 outward, Rect uv)
         {
-            Vector3 n = Vector3.Cross(b - a, c - a).normalized;
+            Vector3 n = Vector3.Cross(b - a, c - a);
+            if (Vector3.Dot(n, outward) < 0f)
+            {
+                Vector3 swap = b;
+                b = c;
+                c = swap;
+                n = -n;
+            }
+            n = n.normalized;
             int i = m.V.Count;
-            Vector2 uvC = new Vector2((uv.xMin + uv.xMax) * 0.5f, (uv.yMin + uv.yMax) * 0.5f);
             AddVert(m, a, n, new Vector2(uv.xMin, uv.yMin));
             AddVert(m, b, n, new Vector2(uv.xMax, uv.yMin));
             AddVert(m, c, n, new Vector2(uv.xMin, uv.yMax));
@@ -813,19 +822,19 @@ namespace LittleGarage
                 Vector3 p1o = center + new Vector3(Mathf.Cos(a1) * radiusOuter, Mathf.Sin(a1) * radiusOuter, -hw);
                 Vector3 p0o2 = center + new Vector3(Mathf.Cos(a0) * radiusOuter, Mathf.Sin(a0) * radiusOuter, hw);
                 Vector3 p1o2 = center + new Vector3(Mathf.Cos(a1) * radiusOuter, Mathf.Sin(a1) * radiusOuter, hw);
-                // outer surface
-                AddQuad(m, p0o, p1o, p1o2, p0o2, uvRect);
+                // Outer surface: reversed from the old order so the visible front
+                // face points away from the axle instead of being culled.
+                AddQuad(m, p0o2, p1o2, p1o, p0o, uvRect);
 
                 Vector3 p0i = center + new Vector3(Mathf.Cos(a0) * radiusInner, Mathf.Sin(a0) * radiusInner, -hw);
                 Vector3 p1i = center + new Vector3(Mathf.Cos(a1) * radiusInner, Mathf.Sin(a1) * radiusInner, -hw);
                 Vector3 p0i2 = center + new Vector3(Mathf.Cos(a0) * radiusInner, Mathf.Sin(a0) * radiusInner, hw);
                 Vector3 p1i2 = center + new Vector3(Mathf.Cos(a1) * radiusInner, Mathf.Sin(a1) * radiusInner, hw);
-                // inner surface
-                AddQuad(m, p1i, p0i, p0i2, p1i2, uvRect);
-                // front cap ring
-                AddQuad(m, p0o2, p1o2, p1i2, p0i2, uvRect);
-                // back cap ring
-                AddQuad(m, p1o, p0o, p0i, p1i, uvRect);
+                // Inner surface faces the axle.
+                AddQuad(m, p0i, p1i, p1i2, p0i2, uvRect);
+                // Cap rings face +Z / -Z respectively.
+                AddQuad(m, p0i2, p1i2, p1o2, p0o2, uvRect);
+                AddQuad(m, p0o, p1o, p1i, p0i, uvRect);
             }
         }
 

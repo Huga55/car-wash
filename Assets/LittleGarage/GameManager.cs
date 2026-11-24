@@ -28,8 +28,11 @@ namespace LittleGarage
         private SurfaceStateSystem _surface;
         private ParticleSystem _waterFx;
         private ParticleSystem _foamFx;
+        private WaterStreamFX _stream;
         private Material _bodyMaterial;
         private Camera _camera;
+        private Vector2 _lastPointerScreen;
+        private bool _hasPointerSample;
 
         private ScreenId _screen;
         private bool _paused;
@@ -43,7 +46,6 @@ namespace LittleGarage
         private string _activeLoop;
         private string _currentJobId;
         private int _paintFrame;
-        private readonly RaycastHit[] _hits = new RaycastHit[8];
 
         private Action _onPauseRequested;
         private Action _onResumeRequested;
@@ -67,6 +69,27 @@ namespace LittleGarage
         internal void CompleteJobForTests()
         {
             if (_screen == ScreenId.Play) CompleteJob();
+        }
+
+        /// <summary>QA seam for the active stream/nozzle visual.</summary>
+        internal WaterStreamFX Stream => _stream;
+
+        /// <summary>QA seam for driving the existing pointer handlers deterministically.</summary>
+        internal void SimulatePointerForTests(Vector2 screen, bool down)
+        {
+            if (down) OnPointerDown(screen);
+            else OnPointerUp(screen);
+        }
+
+        internal void SimulatePointerMoveForTests(Vector2 screen)
+        {
+            OnPointerMove(screen);
+        }
+
+        /// <summary>Forces the held-pointer refresh path used by Update, without waiting a frame.</summary>
+        internal void RefreshHeldPointerForTests(float dt)
+        {
+            RefreshHeldPointer(dt);
         }
 
         public void Initialize(GameConfig config)
@@ -94,6 +117,11 @@ namespace LittleGarage
 
             _waterFx = EffectFx.CreateSpray(_garage.transform, new Color(0.65f, 0.88f, 1f), 90f);
             _foamFx = EffectFx.CreateFoam(_garage.transform);
+
+            GameObject streamGo = new GameObject("Water Stream FX");
+            streamGo.transform.SetParent(transform, false);
+            _stream = streamGo.AddComponent<WaterStreamFX>();
+            _stream.Initialize(_camera);
 
             _audio = GetComponent<AudioManager>();
             if (_audio == null) _audio = gameObject.AddComponent<AudioManager>();
@@ -169,7 +197,20 @@ namespace LittleGarage
             else if (_repair != null && !_repair.IsComplete && CurrentTaskKind() == TaskKind.Repair)
                 _ui.SetProgress(Mathf.Clamp01(_repair.Progress));
 
-            if (!_pointerDown) StopEffects();
+            if (_pointerDown && _hasPointerSample && CurrentTaskKind() == TaskKind.Wash)
+                RefreshHeldPointer(dt);
+            else if (!_pointerDown)
+                StopEffects();
+        }
+
+        private void RefreshHeldPointer(float dt)
+        {
+            if (_paused || _finalizing || _screen != ScreenId.Play || _car == null) return;
+            RaycastHit hit;
+            if (TryHit(_lastPointerScreen, out hit))
+                PaintAt(_lastPointerScreen, hit, dt);
+            else if (_camera != null && _stream != null)
+                _stream.Retarget(_camera.ScreenPointToRay(_lastPointerScreen).GetPoint(4f), Vector3.up);
         }
 
         private TaskKind CurrentTaskKind()
@@ -186,6 +227,7 @@ namespace LittleGarage
             _paused = false;
             Time.timeScale = 1f;
             _pointerDown = false;
+            _hasPointerSample = false;
             StopFinale();
             StopEffects();
             if (_input != null) _input.SetPaintEnabled(false);
@@ -219,6 +261,7 @@ namespace LittleGarage
             _advancing = false;
             _taskIndex = 0;
             _pointerDown = false;
+            _hasPointerSample = false;
             StopFinale();
             StopEffects();
 
@@ -249,6 +292,7 @@ namespace LittleGarage
             _cameraRig.SetZone(job.zone);
             _cameraRig.Focus(_car.transform.position + Vector3.up * def.height * 0.45f, def.cameraDistance);
             if (_camera == null) _camera = Camera.main;
+            if (_camera != null) _camera.orthographic = false;
 
             _audio.PlayMusic("wash");
             _levels.StartJob(jobId);
@@ -256,6 +300,44 @@ namespace LittleGarage
             _input.SetPaintEnabled(true);
             _screen = ScreenId.Play;
             BeginTask(0);
+            LogGameplayDiagnostics();
+        }
+
+        /// <summary>
+        /// One-shot gameplay entry snapshot. Compiled out of release players so it
+        /// cannot spam production logs, but available in Editor/dev builds for QA.
+        /// </summary>
+        private void LogGameplayDiagnostics()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (_car == null) return;
+            Renderer[] renderers = _car.GetComponentsInChildren<Renderer>(true);
+            Collider[] colliders = _car.GetComponentsInChildren<Collider>(true);
+            int activeRenderers = 0;
+            Bounds bounds = new Bounds(_car.transform.position, Vector3.zero);
+            bool hasBounds = false;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Renderer r = renderers[i];
+                if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
+                activeRenderers++;
+                Bounds b = r.bounds;
+                if (b.size.sqrMagnitude < 0.000001f) continue;
+                if (!hasBounds) { bounds = b; hasBounds = true; }
+                else bounds.Encapsulate(b);
+            }
+            int canvases = Object.FindObjectsOfType<Canvas>(true).Length;
+            Debug.Log("[LittleGarage QA] vehicle=" + _car.name +
+                " renderers=" + activeRenderers + "/" + renderers.Length +
+                " colliders=" + colliders.Length +
+                " bounds=" + (hasBounds ? bounds.size.ToString() : "none") +
+                " camera=" + (_camera != null ? _camera.transform.position.ToString() : "none") +
+                " culling=" + (_camera != null ? _camera.cullingMask.ToString() : "none") +
+                " canvases=" + canvases +
+                " screen=" + _screen +
+                " tool=" + (_washing != null ? _washing.CurrentTool.ToString() : "none") +
+                " stream=" + (_stream != null && _stream.IsActive));
+#endif
         }
 
         private void BeginTask(int index)
@@ -357,6 +439,7 @@ namespace LittleGarage
 
             WashTool active = (_washing != null && CurrentTaskKind() == TaskKind.Wash) ? _washing.CurrentTool : tool;
             ToolDef def = _config.Tool(active);
+            bool instructionWasHidden = _ui != null && !_ui.InstructionVisible;
             if (def != null)
             {
                 _ui.SetHint(def.hintRu);
@@ -368,7 +451,9 @@ namespace LittleGarage
                 _ui.ShowPlay(job, _taskIndex + 1, steps, instruction, active.ToString(), task);
                 if (_washing != null)
                     _ui.SetProgress(Mathf.Clamp01(_washing.Progress));
+                if (instructionWasHidden) _ui.MarkFirstInteraction();
             }
+            StopEffects();
             StopLoop();
         }
 
@@ -683,6 +768,7 @@ namespace LittleGarage
             _paused = value;
             Time.timeScale = value ? 0f : 1f;
             _pointerDown = false;
+            _hasPointerSample = false;
             StopEffects();
             _ui.ShowPause(value);
             if (value) _audio.Play("ui_click");
@@ -693,49 +779,96 @@ namespace LittleGarage
             if (_paused || _screen != ScreenId.Play || _car == null) return;
             if (_ui != null && _ui.IsPointerOverUI(screen)) return;
             _pointerDown = true;
-            RaycastHit hit;
-            if (!TryHit(screen, out hit)) return;
+            _lastPointerScreen = screen;
+            _hasPointerSample = true;
 
+            RaycastHit hit;
+            bool hasHit = TryHit(screen, out hit);
             if (CurrentTaskKind() == TaskKind.Wash)
-               PaintAt(screen, hit, 0f);
-            else if (CurrentTaskKind() == TaskKind.Repair)
+            {
+                if (hasHit) PaintAt(screen, hit, 0f);
+                else ShowStreamOnMiss(screen);
+            }
+            else if (hasHit && CurrentTaskKind() == TaskKind.Repair)
+            {
                 _repair.PointerDown(hit.collider != null ? hit.collider.gameObject : null, screen);
+            }
         }
 
         private void OnPointerMove(Vector2 screen)
         {
             if (!_pointerDown || _paused || _screen != ScreenId.Play || _car == null) return;
+            _lastPointerScreen = screen;
+            _hasPointerSample = true;
+
             RaycastHit hit;
-            if (!TryHit(screen, out hit)) { StopEffects(); return; }
+            bool hasHit = TryHit(screen, out hit);
             if (CurrentTaskKind() == TaskKind.Wash)
-                PaintAt(screen, hit, Mathf.Min(Time.deltaTime, 0.05f));
-            else if (CurrentTaskKind() == TaskKind.Repair)
+            {
+                if (hasHit) PaintAt(screen, hit, Mathf.Min(Time.deltaTime, 0.05f));
+                else ShowStreamOnMiss(screen);
+            }
+            else if (hasHit && CurrentTaskKind() == TaskKind.Repair)
+            {
                 _repair.PointerMove(screen);
+            }
         }
 
         private void OnPointerUp(Vector2 screen)
         {
             if (!_pointerDown) return;
             _pointerDown = false;
+            _hasPointerSample = false;
             if (CurrentTaskKind() == TaskKind.Repair) _repair.PointerUp();
             StopEffects();
+        }
+
+        private void ShowStreamOnMiss(Vector2 screen)
+        {
+            if (_camera == null || _stream == null) return;
+            WashTool tool = _washing != null ? _washing.CurrentTool : WashTool.Pressure;
+            Ray ray = _camera.ScreenPointToRay(screen);
+            Vector3 point = ray.GetPoint(4f);
+            Vector3 normal = Vector3.up;
+
+            RaycastHit worldHit;
+            if (Physics.Raycast(ray, out worldHit, 100f))
+            {
+                point = worldHit.point;
+                normal = worldHit.normal;
+                ParticleSystem ps = tool == WashTool.Foam || tool == WashTool.Sponge ? _foamFx : _waterFx;
+                if (ps != null && (_paintFrame++ % 2 == 0))
+                    EffectFx.Burst(ps, point + normal * 0.06f, 2);
+            }
+
+            _stream.Begin(tool);
+            _stream.Retarget(point, normal);
         }
 
         private bool TryHit(Vector2 screen, out RaycastHit hit)
         {
             hit = default(RaycastHit);
             if (_camera == null) _camera = Camera.main;
-            if (_camera == null) return false;
+            if (_camera == null || _car == null) return false;
+
             Ray ray = _camera.ScreenPointToRay(screen);
-            int count = Physics.RaycastNonAlloc(ray, _hits, 100f);
-            for (int i = 0; i < count; i++)
+            // Only registered paint meshes carry atlas UVs. Lights, bumpers and trim
+            // colliders must not mutate the state texture with unrelated coordinates.
+            MeshCollider[] paintColliders = _car.PaintColliders;
+            bool found = false;
+            float best = float.MaxValue;
+            for (int i = 0; i < paintColliders.Length; i++)
             {
-                if (_hits[i].collider == null) continue;
-                if (_hits[i].collider.GetComponentInParent<VehicleInstance>() != _car) continue;
-                hit = _hits[i];
-                return true;
+                MeshCollider collider = paintColliders[i];
+                if (collider == null || !collider.enabled) continue;
+                RaycastHit candidate;
+                if (!collider.Raycast(ray, out candidate, 100f)) continue;
+                if (candidate.distance >= best) continue;
+                best = candidate.distance;
+                hit = candidate;
+                found = true;
             }
-            return false;
+            return found;
         }
 
         private void PaintAt(Vector2 screen, RaycastHit hit, float dt)
@@ -743,17 +876,36 @@ namespace LittleGarage
             if (_washing == null || _washing.IsComplete) return;
             Vector2 uv = hit.textureCoord;
             _washing.ApplyStroke(uv, dt);
+            _ui.MarkFirstInteraction();
 
             WashTool tool = _washing.CurrentTool;
             string sound = SoundForTool(tool);
             _audio.SetLoop(sound, true, 0.85f);
             _activeLoop = sound;
 
+            if (_stream != null)
+            {
+                _stream.Begin(tool);
+                _stream.Retarget(hit.point, hit.normal);
+            }
+
             ParticleSystem ps = tool == WashTool.Foam || tool == WashTool.Sponge ? _foamFx : _waterFx;
             if (ps != null && (_paintFrame++ % 2 == 0))
             {
                 Vector3 pos = hit.point + hit.normal * 0.06f;
-                EffectFx.Burst(ps, pos, tool == WashTool.Dryer || tool == WashTool.Polisher ? 2 : 4);
+                EffectFx.Burst(ps, pos, ImpactCount(tool));
+            }
+        }
+
+        private static int ImpactCount(WashTool tool)
+        {
+            switch (tool)
+            {
+                case WashTool.Dryer: return 2;
+                case WashTool.Polisher: return 3;
+                case WashTool.Foam:
+                case WashTool.Sponge: return 6;
+                default: return 4;
             }
         }
 
@@ -784,6 +936,7 @@ namespace LittleGarage
             StopLoop();
             if (_waterFx != null) _waterFx.Stop(false, ParticleSystemStopBehavior.StopEmitting);
             if (_foamFx != null) _foamFx.Stop(false, ParticleSystemStopBehavior.StopEmitting);
+            if (_stream != null) _stream.Stop();
         }
 
         private void ApplySurfaceMaterial(VehicleInstance car, SurfaceStateSystem surface, Color color)
@@ -809,24 +962,25 @@ namespace LittleGarage
                 _bodyMaterial.SetTexture("_DirtMap", surface.Map);
             }
 
-            MeshRenderer[] renderers = car.GetComponentsInChildren<MeshRenderer>(true);
+            // Use the explicit registry instead of a MeshCollider + material-name
+            // heuristic. Accent panels are paint targets too and must show dirt/foam.
+            Renderer[] renderers = car.PaintRenderers;
             for (int i = 0; i < renderers.Length; i++)
             {
-                MeshRenderer r = renderers[i];
+                MeshRenderer r = renderers[i] as MeshRenderer;
                 if (r == null) continue;
-                if (r.GetComponent<MeshCollider>() == null) continue;
                 Material[] mats = r.sharedMaterials;
+                if (mats == null || mats.Length == 0)
+                {
+                    Material single = r.sharedMaterial;
+                    mats = single != null ? new[] { single } : new Material[0];
+                }
                 bool changed = false;
                 for (int m = 0; m < mats.Length; m++)
                 {
-                    Material mat = mats[m];
-                    if (mat == null) continue;
-                    string n = mat.name != null ? mat.name : string.Empty;
-                    if (n.IndexOf("Body", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        mats[m] = _bodyMaterial;
-                        changed = true;
-                    }
+                    if (mats[m] == _bodyMaterial) continue;
+                    mats[m] = _bodyMaterial;
+                    changed = true;
                 }
                 if (changed) r.sharedMaterials = mats;
             }
