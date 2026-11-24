@@ -1,8 +1,75 @@
 Run game-ci/unity-test-runner@v4
-Downloading game-ci CLI v0.1.77 from https://github.com/game-ci/cli/releases/download/v0.1.77/game-ci-linux-x64.tar.gz
-/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/23a991e4-ca36-46d5-8c42-510cf34fd7eb -f /home/runner/work/_temp/db0310f1-103d-4328-9d24-251f8e30d98a
-/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/car-wash/car-wash --files-from manifest.txt --use-compress-program zstdmt
-Sent 37845242 of 37845242 (100.0%), 36.1 MBs/sec
-/home/runner/work/_temp/23a991e4-ca36-46d5-8c42-510cf34fd7eb/game-ci test --docker --dockerShmSize=1025m --engine=unity --testPlatforms=playmode;editmode;COMBINE_RESULTS --engineVersion=2022.3.61f1 --no-coverageEnabled --coverageOptions=generateAdditionalMetrics;generateHtmlReport;generateBadgeReport;dontClear --artifactsPath=build/verification --dockerIsolationMode=default --containerRegistryRepository=unityci/editor --containerRegistryImageVersion=3
-[WARN] Unknown argument: noCoverageEnabled
+Cache hit for: game-ci-cli-v0.1.77-game-ci
+Received 4194304 of 37845242 (11.1%), 4.0 MBs/sec
+Received 37845242 of 37845242 (100.0%), 30.0 MBs/sec
+Cache Size: ~36 MB (37845242 B)
+/usr/bin/tar -xf /home/runner/work/_temp/99d5f44a-1346-4338-b8c1-9b79cb7ad4ef/cache.tzst -P -C /home/runner/work/car-wash/car-wash --use-compress-program unzstd
+Cache restored successfully
+Restored game-ci CLI v0.1.77 from cache
+/tmp/game-ci-cli-cache/v0.1.77/game-ci test --docker --dockerShmSize=1025m --engine=unity --testPlatforms=playmode;editmode;COMBINE_RESULTS --engineVersion=2022.3.61f1 --coverageOptions=generateAdditionalMetrics;generateHtmlReport;generateBadgeReport;dontClear --artifactsPath=build/verification --dockerIsolationMode=default --containerRegistryRepository=unityci/editor --containerRegistryImageVersion=3
+[INFO] linux StandaloneLinux64 2022.3.61f1
+Unity test
+[ERROR] Error: Unable to find image 'unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3' locally
+ubuntu-2022.3.61f1-linux-il2cpp-3: Pulling from unityci/editor
+d3a5feebe29b: Pulling fs layer
+b8639ca2d512: Pulling fs layer
+ced46a10fe11: Pulling fs layer
+96c832531c38: Pulling fs layer
+f0dc4d0a425e: Pulling fs layer
+9a4d47d5aa13: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+dc7a969c82d9: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+a1ff4bc3f481: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+a636358af2c8: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+bef3b93c3984: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+9a78f1944b3d: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+46805e80f2d7: Pulling fs layer
+4f4fb700ef54: Already exists
+ced46a10fe11: Download complete
+d3a5feebe29b: Download complete
+9a4d47d5aa13: Download complete
+a1ff4bc3f481: Download complete
+bef3b93c3984: Download complete
+f0dc4d0a425e: Download complete
+a636358af2c8: Download complete
+c127eba3c243: Download complete
+96c832531c38: Download complete
+dc7a969c82d9: Download complete
+46805e80f2d7: Download complete
+9a78f1944b3d: Download complete
+96c832531c38: Pull complete
+9a4d47d5aa13: Pull complete
+46805e80f2d7: Pull complete
+dc7a969c82d9: Pull complete
+d3a5feebe29b: Pull complete
+a1ff4bc3f481: Pull complete
+bef3b93c3984: Pull complete
+a636358af2c8: Pull complete
+b8639ca2d512: Download complete
+ced46a10fe11: Pull complete
+f0dc4d0a425e: Pull complete
+b8639ca2d512: Pull complete
+Digest: sha256:a45c958f6bd3c3b30fa0af0a336f88be06999ec4272f8be9e21ab800644ea2a4
+Status: Downloaded newer image for unityci/editor:ubuntu-2022.3.61f1-linux-il2cpp-3
+
+    at <anonymous> (/$bunfs/root/game-ci:14465:41)
+    at emit (node:events:98:22)
+    at #maybeClose (node:child_process:766:16)
+    at #handleOnExit (node:child_process:520:72)
+    at processTicksAndRejections (native:7:39)
 Error: Test run failed with exit code 1

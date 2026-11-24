@@ -40,12 +40,16 @@ jobs:
           testMode: all
           artifactsPath: build/verification
 
+      # Must run even when the test step fails: playmode.log / editmode.log
+      # and the result XMLs are the only place the real Unity failure reason
+      # is recorded (the CLI's final message is just Docker's pull output).
       - name: Upload test results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: UnityTestResults
           path: build/verification
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
   build:
