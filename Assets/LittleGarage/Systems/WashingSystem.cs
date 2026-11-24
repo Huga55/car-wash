@@ -60,8 +60,9 @@ namespace LittleGarage
         {
             int index = IndexOfTool(t);
             if (index < 0) return;
-            // Sequential flow: do not allow skipping ahead.
-            if (index > _toolIndex) return;
+            // Sequential flow: the active tool and the immediately following tool can be
+            // selected; later stages stay locked until they become current.
+            if (index > _toolIndex + 1) return;
             if (_toolIndex == index && CurrentTool == t) return;
 
             _toolIndex = index;

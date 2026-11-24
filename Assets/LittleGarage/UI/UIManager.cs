@@ -550,12 +550,16 @@ namespace LittleGarage
             HorizontalLayoutGroup th = CreateHorizontal(topRt, 12f, new RectOffset(20, 20, 12, 12));
             th.childAlignment = TextAnchor.MiddleCenter;
 
-            VerticalLayoutGroup info = CreateVertical(topRt, 2f, new RectOffset(0, 0, 0, 0));
-            LayoutElement infoLe = info.gameObject.AddComponent<LayoutElement>();
+            // Info needs its own child object: TopBar already hosts a HorizontalLayoutGroup,
+            // and a GameObject may only contain one LayoutGroup.
+            GameObject info = new GameObject("Info", typeof(RectTransform));
+            info.transform.SetParent(topRt, false);
+            VerticalLayoutGroup infoLayout = CreateVertical(info.transform, 2f, new RectOffset(0, 0, 0, 0));
+            LayoutElement infoLe = info.AddComponent<LayoutElement>();
             infoLe.flexibleWidth = 1;
-            _playTitleText = CreateText("Title", info.transform, "", 34, FontStyle.Bold, _text, TextAnchor.MiddleLeft);
+            _playTitleText = CreateText("Title", infoLayout.transform, "", 34, FontStyle.Bold, _text, TextAnchor.MiddleLeft);
             _playTitleText.gameObject.AddComponent<LayoutElement>().preferredHeight = 44;
-            _playTaskText = CreateText("Task", info.transform, "", 24, FontStyle.Normal, _muted, TextAnchor.MiddleLeft);
+            _playTaskText = CreateText("Task", infoLayout.transform, "", 24, FontStyle.Normal, _muted, TextAnchor.MiddleLeft);
             _playTaskText.gameObject.AddComponent<LayoutElement>().preferredHeight = 30;
 
             _playPauseButton = CreateButton("Pause", topRt, "ПАУЗА", _steel, _text, 28, 96f, 180f);

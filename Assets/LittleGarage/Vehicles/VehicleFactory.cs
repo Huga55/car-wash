@@ -403,7 +403,7 @@ namespace LittleGarage
             go.transform.SetParent(ctx.Root, false);
             go.transform.localPosition = pos;
             go.transform.localScale = size;
-            Object.Destroy(go.GetComponent<BoxCollider>());
+            RemoveCollider(go.GetComponent<BoxCollider>());
             Renderer r = go.GetComponent<Renderer>();
             r.sharedMaterial = mat;
             MeshCollider mc = go.AddComponent<MeshCollider>();
@@ -462,14 +462,14 @@ namespace LittleGarage
             arm.transform.SetParent(root.transform, false);
             arm.transform.localScale = new Vector3(0.08f, 0.03f, Mathf.Abs(size.z) * 0.5f);
             arm.transform.localPosition = new Vector3(0f, 0f, size.z * 0.25f);
-            Object.Destroy(arm.GetComponent<BoxCollider>());
+            RemoveCollider(arm.GetComponent<BoxCollider>());
             arm.GetComponent<Renderer>().sharedMaterial = ctx.DarkMat;
             GameObject head = GameObject.CreatePrimitive(PrimitiveType.Cube);
             head.name = "Head";
             head.transform.SetParent(root.transform, false);
             head.transform.localScale = new Vector3(size.x, size.y, Mathf.Abs(size.z) * 0.35f);
             head.transform.localPosition = new Vector3(0f, 0f, size.z * 0.55f);
-            Object.Destroy(head.GetComponent<BoxCollider>());
+            RemoveCollider(head.GetComponent<BoxCollider>());
             head.GetComponent<Renderer>().sharedMaterial = ctx.DarkMat;
             MeshCollider mc = head.AddComponent<MeshCollider>();
             mc.sharedMesh = head.GetComponent<MeshFilter>().sharedMesh;
@@ -503,7 +503,7 @@ namespace LittleGarage
             steer.transform.localPosition = new Vector3(cabinX + l * 0.1f, cabinY + 0.05f, w * 0.18f);
             steer.transform.localScale = new Vector3(0.18f, 0.01f, 0.18f);
             steer.transform.localRotation = Quaternion.Euler(70f, 0f, 0f);
-            Object.Destroy(steer.GetComponent<CapsuleCollider>());
+            RemoveCollider(steer.GetComponent<CapsuleCollider>());
             steer.GetComponent<Renderer>().sharedMaterial = ctx.DarkMat;
         }
 
@@ -556,7 +556,7 @@ namespace LittleGarage
             hub.transform.SetParent(visual.transform, false);
             hub.transform.localScale = new Vector3(r * 0.35f, w * 0.45f, r * 0.35f);
             hub.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            Object.Destroy(hub.GetComponent<CapsuleCollider>());
+            RemoveCollider(hub.GetComponent<CapsuleCollider>());
             Renderer hubR = hub.GetComponent<Renderer>();
             hubR.sharedMaterial = ctx.ChromeMat;
             ctx.Instance.RegisterRimRenderer(hubR);
@@ -571,7 +571,7 @@ namespace LittleGarage
                 spoke.transform.localPosition = new Vector3(Mathf.Cos(a) * r * 0.40f, Mathf.Sin(a) * r * 0.40f, 0f);
                 spoke.transform.localRotation = Quaternion.Euler(0f, 0f, a * Mathf.Rad2Deg);
                 spoke.transform.localScale = new Vector3(r * 0.10f, r * 0.52f, w * 0.62f);
-                Object.Destroy(spoke.GetComponent<BoxCollider>());
+                RemoveCollider(spoke.GetComponent<BoxCollider>());
                 Renderer spokeR = spoke.GetComponent<Renderer>();
                 spokeR.sharedMaterial = ctx.ChromeMat;
                 ctx.Instance.RegisterRimRenderer(spokeR);
@@ -598,7 +598,7 @@ namespace LittleGarage
             tire.transform.SetParent(damaged.transform, false);
             tire.transform.localScale = new Vector3(r * 1.7f, w * 0.4f, r * 1.4f);
             tire.transform.localRotation = Quaternion.Euler(90f, 0f, 15f);
-            Object.Destroy(tire.GetComponent<CapsuleCollider>());
+            RemoveCollider(tire.GetComponent<CapsuleCollider>());
             Material dm = MakeMat("DamagedTire", new Color(0.18f, 0.14f, 0.12f, 1f), 0f, 0.15f);
             tire.GetComponent<Renderer>().sharedMaterial = dm;
             return damaged;
@@ -865,7 +865,7 @@ namespace LittleGarage
             go.transform.SetParent(parent != null ? parent : ctx.Root, false);
             go.transform.localPosition = localPos;
             go.transform.localScale = size;
-            Object.Destroy(go.GetComponent<BoxCollider>());
+            RemoveCollider(go.GetComponent<BoxCollider>());
             Renderer r = go.GetComponent<Renderer>();
             r.sharedMaterial = mat;
             if (addCollider)
@@ -885,21 +885,21 @@ namespace LittleGarage
             baseBar.name = "Base";
             baseBar.transform.SetParent(root.transform, false);
             baseBar.transform.localScale = new Vector3(0.08f, 0.04f, width);
-            Object.Destroy(baseBar.GetComponent<BoxCollider>());
+            RemoveCollider(baseBar.GetComponent<BoxCollider>());
             baseBar.GetComponent<Renderer>().sharedMaterial = ctx.DarkMat;
             GameObject red = GameObject.CreatePrimitive(PrimitiveType.Cube);
             red.name = "Red";
             red.transform.SetParent(root.transform, false);
             red.transform.localPosition = new Vector3(0f, 0.03f, width * 0.2f);
             red.transform.localScale = new Vector3(0.09f, 0.05f, width * 0.35f);
-            Object.Destroy(red.GetComponent<BoxCollider>());
+            RemoveCollider(red.GetComponent<BoxCollider>());
             red.GetComponent<Renderer>().sharedMaterial = MakeMat("LightRed", new Color(1f, 0.15f, 0.1f, 1f), 0.2f, 0.8f);
             GameObject blue = GameObject.CreatePrimitive(PrimitiveType.Cube);
             blue.name = "Blue";
             blue.transform.SetParent(root.transform, false);
             blue.transform.localPosition = new Vector3(0f, 0.03f, -width * 0.2f);
             blue.transform.localScale = new Vector3(0.09f, 0.05f, width * 0.35f);
-            Object.Destroy(blue.GetComponent<BoxCollider>());
+            RemoveCollider(blue.GetComponent<BoxCollider>());
             blue.GetComponent<Renderer>().sharedMaterial = MakeMat("LightBlue", new Color(0.1f, 0.3f, 1f, 1f), 0.2f, 0.8f);
         }
 
@@ -916,7 +916,7 @@ namespace LittleGarage
                 rail.transform.SetParent(root.transform, false);
                 rail.transform.localPosition = new Vector3(0f, 0f, z);
                 rail.transform.localScale = new Vector3(length, 0.03f, 0.03f);
-                Object.Destroy(rail.GetComponent<BoxCollider>());
+                RemoveCollider(rail.GetComponent<BoxCollider>());
                 rail.GetComponent<Renderer>().sharedMaterial = ctx.ChromeMat;
             }
             int rungs = 6;
@@ -928,7 +928,7 @@ namespace LittleGarage
                 rung.transform.SetParent(root.transform, false);
                 rung.transform.localPosition = new Vector3(x, 0f, 0f);
                 rung.transform.localScale = new Vector3(0.03f, 0.03f, width);
-                Object.Destroy(rung.GetComponent<BoxCollider>());
+                RemoveCollider(rung.GetComponent<BoxCollider>());
                 rung.GetComponent<Renderer>().sharedMaterial = ctx.ChromeMat;
             }
         }
@@ -942,13 +942,27 @@ namespace LittleGarage
             GameObject v = GameObject.CreatePrimitive(PrimitiveType.Cube);
             v.transform.SetParent(root.transform, false);
             v.transform.localScale = new Vector3(size * 0.25f, size, 0.02f);
-            Object.Destroy(v.GetComponent<BoxCollider>());
+            RemoveCollider(v.GetComponent<BoxCollider>());
             v.GetComponent<Renderer>().sharedMaterial = red;
             GameObject h = GameObject.CreatePrimitive(PrimitiveType.Cube);
             h.transform.SetParent(root.transform, false);
             h.transform.localScale = new Vector3(size, size * 0.25f, 0.02f);
-            Object.Destroy(h.GetComponent<BoxCollider>());
+            RemoveCollider(h.GetComponent<BoxCollider>());
             h.GetComponent<Renderer>().sharedMaterial = red;
+        }
+
+        /// <summary>
+        /// Drops the collider Unity adds to every primitive. Destroy() is illegal in edit
+        /// mode (it logs an error that fails EditMode tests), so use DestroyImmediate
+        /// whenever the factory runs outside play mode.
+        /// </summary>
+        private static void RemoveCollider(Component collider)
+        {
+            if (collider == null) return;
+            if (Application.isPlaying)
+                Object.Destroy(collider);
+            else
+                Object.DestroyImmediate(collider);
         }
     }
 }
