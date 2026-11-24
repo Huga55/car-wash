@@ -88,9 +88,11 @@ jobs:
           - target: Android
             buildMethod: LittleCarWashBuild.Build.Run
             artifactPath: build/Android/LittleCarWash.apk
+            uploadPath: build/Android/LittleCarWash.apk
           - target: StandaloneWindows64
             buildMethod: BuildScript.BuildWindowsCI
             artifactPath: Builds/Windows/LittleCarWorkshop.exe
+            uploadPath: Builds/Windows
 
     steps:
       - name: Checkout repository
@@ -138,7 +140,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: LittleCarWash-${{ matrix.target }}
-          path: ${{ matrix.artifactPath }}
+          path: ${{ matrix.uploadPath }}
           if-no-files-found: error
           retention-days: 30
 
